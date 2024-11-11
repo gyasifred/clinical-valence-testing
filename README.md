@@ -65,7 +65,7 @@ Run behavioral tests with specific shifts:
 python main.py \
   --test_set_path /path/to/test/data.csv \
   --model_path /path/to/model/checkpoint \
-  --shift_keys "neutralize,pejorative,laud,neutralval" \
+  --shift_keys neutralize,pejorative,laud,neutralval \
   --task diagnosis \
   --save_dir ./results
 ```
