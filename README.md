@@ -34,7 +34,7 @@ This project extends the work of [Clinical Behavioral Testing](https://github.co
 
 1. Clone the repository:
 ```bash
-git clone [repository-url]
+git clone https://github.com/gyasifred/clinical-valence-testing.git
 cd clinical-valence-testing
 ```
 
