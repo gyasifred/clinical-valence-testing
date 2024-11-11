@@ -1,0 +1,7 @@
+# Ignore all files and subdirectories within specific folders
+result/
+__pycache__/
+checkpoints/
+*.csv
+# Ignore specific file
+DIA_GROUPS_3_DIGITS_adm_test.csv
