@@ -19,6 +19,7 @@ from dataclasses import dataclass, asdict
 class PredictionState:
     """Tracks the state of prediction progress for checkpointing"""
     current_group: str
+    shift_type: str 
     processed_samples: int
     total_samples: int
     last_note_id: int
@@ -179,10 +180,10 @@ class DiagnosisPredictor(TransformerPredictor):
             Base shift type name
         """
         shift_types = {
-            "pejorative": ["non_compliant","uncooperative","resistant","difficult","no_mention"],
-            "laudatory": ["compliant", "cooperative","pleasant","respectful","no_mention"],
-            "neutralize": ["neutralize"],
-            "neutralval": ["neutral","no_mention"]
+            "pejorative": ["non_compliant","uncooperative","resistant","difficult"],
+            "laudatory": ["compliant", "cooperative","pleasant","respectful"],
+            "neutralize": ["no_mention"],
+            "neutralval": ["neutral"]
         }
         
         for base_name, variants in shift_types.items():
@@ -255,7 +256,6 @@ class DiagnosisPredictor(TransformerPredictor):
             self.file_handlers[shift_base] = FileHandler(base_path)
             
         return self.file_handlers[shift_base]
-    
 
     def predict_batch(self, batch_texts: List[str], note_ids: List[int], group_name: str):
         """
@@ -268,6 +268,7 @@ class DiagnosisPredictor(TransformerPredictor):
         """
         try:
             file_handler = self._get_file_handler(group_name)
+            shift_type = self._get_shift_base_name(group_name)
             
             for note_id, sample in zip(note_ids, batch_texts):
                 attention_weights, words, logits = super().inference_from_texts(
@@ -281,28 +282,31 @@ class DiagnosisPredictor(TransformerPredictor):
                 prob_per_label = [diagnosis_probs[i] for i in self.label_list_filter]
                 
                 with file_handler.get_writer('diagnosis', 
-                    ["NoteID", "Valence"] + self.code_filter) as diag_writer:
+                    ["NoteID", "Valence", "Val_class"] + self.code_filter) as diag_writer:
                     diag_row = dict(zip(self.code_filter, prob_per_label))
                     diag_row["Valence"] = group_name
                     diag_row["NoteID"] = note_id
+                    diag_row["Val_class"] = shift_type 
                     diag_writer.writerow(diag_row)
                 
                 with file_handler.get_writer('attention',
-                    ["NoteID", "Word", "AttentionWeight", "Valence"]) as attn_writer:
+                    ["NoteID", "Word", "AttentionWeight", "Valence", "Val_class"]) as attn_writer:
                     for word, weight in zip(words, attention_weights):
                         attn_writer.writerow({
                             "NoteID": note_id,
                             "Word": word,
                             "AttentionWeight": float(weight),
-                            "Valence": group_name
+                            "Valence": group_name,
+                            "Val_class": shift_type 
                         })
                 
                 with file_handler.get_writer('clinical_notes',
-                    ["NoteID", "ClinicalNote", "Valence"]) as note_writer:
+                    ["NoteID", "ClinicalNote", "Valence", "Val_class"]) as note_writer:
                     note_writer.writerow({
                         "NoteID": note_id,
                         "ClinicalNote": sample,
-                        "Valence": group_name
+                        "Valence": group_name,
+                        "Val_class": shift_type  
                     })
 
         except Exception as e:
@@ -320,9 +324,11 @@ class DiagnosisPredictor(TransformerPredictor):
             self.save_path = Path("predictions_default.csv")
             self.initialize_for_prediction(str(self.save_path))
             
+        shift_type = self._get_shift_base_name(group_name) 
         num_samples = len(samples)
         self.current_state = PredictionState(
             current_group=group_name,
+            shift_type=shift_type, 
             processed_samples=0,
             total_samples=num_samples,
             last_note_id=-1
