@@ -1,0 +1,118 @@
+# Clinical Valence Testing Configuration
+
+# Model configuration
+model:
+  name: "bvanaken/CORe-clinical-outcome-biobert-v1"
+  max_length: 512
+  batch_size: 128
+  device: "auto"  # auto, cuda, or cpu
+
+  # Attention extraction parameters
+  attention:
+    layer_num: 11
+    head_num: 11
+    aggregation: "sum"  # sum, average, or max
+
+# Data configuration
+data:
+  code_label: "short_codes"
+  text_label: "text"
+  min_code_frequency: 100  # Minimum occurrences for code inclusion
+
+# Prediction configuration
+prediction:
+  threshold: 0.5
+  checkpoint_interval: 1000
+  save_attention: true
+  save_clinical_notes: true
+
+# Training configuration
+training:
+  num_epochs: 5
+  learning_rate: 2e-5
+  weight_decay: 0.01
+  warmup_steps: 0.1
+  scheduler: "linear"
+  early_stopping_patience: 3
+
+# Shift configuration
+shifts:
+  # Pejorative shift terms
+  pejorative:
+    levels:
+      non_compliant: ["non-compliant", "negligent", "careless", "irresponsible", "unreliable"]
+      uncooperative: ["uncooperative", "difficult", "problematic", "demanding", "argumentative", "defiant"]
+      resistant: ["resistant", "hostile", "aggressive", "disruptive", "troublesome"]
+      difficult: ["difficult", "manipulative", "malingering", "attention-seeking", "drug-seeking"]
+
+  # Laudatory shift terms
+  laudatory:
+    levels:
+      compliant: ["compliant", "adherent", "responsible", "reliable"]
+      cooperative: ["cooperative", "agreeable", "courteous", "considerate"]
+      pleasant: ["pleasant", "agreeable"]
+      respectful: ["respectful", "courteous", "considerate"]
+
+  # Neutral shift terms
+  neutral:
+    levels:
+      neutral: ["typical", "average", "regular", "standard", "usual", "presenting", "referred", "evaluated", "assessed", "monitored"]
+
+# Analysis configuration
+analysis:
+  baseline: "neutralize"  # Baseline for shift comparisons
+  significance_level: 0.05
+  multiple_testing_correction: "fdr_bh"  # fdr_bh, bonferroni, or none
+  effect_size_threshold: 0.01
+
+  # Visualization settings
+  visualization:
+    figure_size: [15, 10]
+    font_scale: 2
+    dpi: 300
+    color_map: "vlag"
+    vmin: -0.035
+    vmax: 0.035
+
+  # Statistical tests to perform
+  statistical_tests:
+    - "paired_ttest"
+    - "wilcoxon"
+    - "effect_size"
+    - "confidence_intervals"
+
+# Logging configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "clinical_valence_testing.log"
+  console: true
+
+# Output configuration
+output:
+  save_dir: "./results"
+  create_timestamp_dirs: true
+  save_format: "csv"  # csv or parquet
+  compression: null  # null, gzip, bz2, or xz
+
+# Reproducibility
+random_seed: 42
+deterministic: true
+
+# ICD code translations (for visualization)
+icd_translations:
+  "401": "Hypertension"
+  "427": "Cardiac dysrhythmias"
+  "276": "Disorders of fluid electrolyte"
+  "272": "Disorders of lipoid metabolism"
+  "250": "Diabetes"
+  "414": "Chronic ischemic heart disease"
+  "428": "Heart failure"
+  "518": "Other diseases of lung"
+  "285": "Unspecified anemias"
+  "584": "Acute kidney failure"
+  "599": "Urinary tract disorders"
+  "V586": "Drug Use"
+  "530": "Diseases of esophagus"
+  "585": "Chronic kidney disease"
+  "403": "Hypertensive chronic kidney disease"
