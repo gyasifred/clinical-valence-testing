@@ -1,0 +1,765 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{natbib}
+
+\pgfplotsset{compat=1.17}
+\usetikzlibrary{patterns}
+
+% Custom colors
+\definecolor{clinicalblue}{RGB}{0,102,204}
+\definecolor{pejorative}{RGB}{220,50,50}
+\definecolor{laudatory}{RGB}{50,150,50}
+\definecolor{neutral}{RGB}{100,100,100}
+
+% Header and footer
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Clinical Valence Testing in Medical NLP}
+\lhead{Research Overview}
+\rfoot{Page \thepage}
+
+% Title information
+\title{\textbf{Investigating Language Bias in Clinical NLP Models:\\
+A Systematic Approach to Valence Testing and Attention Analysis}}
+
+\author{
+Clinical NLP Research Team \\
+\texttt{clinical-valence-testing}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Clinical Natural Language Processing (NLP) models are increasingly deployed in healthcare settings to assist with diagnosis prediction and clinical decision-making. However, the potential for these models to exhibit bias based on subjective patient descriptors remains poorly understood. This research investigates how valence-laden language---specifically pejorative, laudatory, and neutral descriptors---affects diagnostic predictions made by transformer-based clinical NLP models. Using BioBERT as our primary model, we systematically perturb clinical texts by inserting controlled valence terms and analyze both prediction shifts and attention weight distributions. Our framework provides quantitative evidence of model behavior under linguistic variations, with implications for fairness, transparency, and clinical deployment of AI systems. This document presents our methodology, experimental design, and analytical framework for technical review by Principal Investigators.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction and Motivation}
+
+\subsection{Background}
+
+The deployment of AI-assisted diagnostic tools in clinical settings has accelerated dramatically, with transformer-based language models achieving near-human performance on various medical NLP tasks \citep{lee2020biobert}. However, recent studies have raised concerns about potential biases in these models, particularly regarding how subjective language about patients influences clinical predictions \citep{vanaken2021behavioral}.
+
+\subsection{The Problem of Implicit Bias}
+
+Clinical notes often contain subjective descriptors that reflect provider attitudes or patient behavior:
+
+\begin{itemize}
+    \item \textbf{Pejorative terms}: ``difficult patient,'' ``non-compliant,'' ``drug-seeking''
+    \item \textbf{Laudatory terms}: ``cooperative patient,'' ``pleasant,'' ``compliant''
+    \item \textbf{Neutral terms}: ``typical patient,'' ``presenting,'' ``evaluated''
+\end{itemize}
+
+\noindent \textbf{Research Question:} \textit{Do these subjective descriptors systematically influence diagnostic predictions made by clinical NLP models, and if so, to what extent?}
+
+\subsection{Clinical Significance}
+
+Understanding model responses to valence language is critical because:
+
+\begin{enumerate}
+    \item \textbf{Health Equity}: Biased models may perpetuate disparities in care quality
+    \item \textbf{Patient Safety}: Incorrect diagnoses based on subjective language pose safety risks
+    \item \textbf{Model Transparency}: Attention analysis reveals what drives model decisions
+    \item \textbf{Regulatory Compliance}: FDA guidance requires bias assessment for clinical AI
+\end{enumerate}
+
+\section{Research Objectives}
+
+\subsection{Primary Objectives}
+
+\begin{enumerate}
+    \item \textbf{Quantify prediction shifts} when valence terms are systematically inserted into clinical texts
+    \item \textbf{Analyze attention patterns} to determine which words influence model predictions
+    \item \textbf{Compare valence effects} across pejorative, laudatory, and neutral language
+    \item \textbf{Establish baseline} with neutralized text (all valence terms removed)
+\end{enumerate}
+
+\subsection{Secondary Objectives}
+
+\begin{enumerate}
+    \item Identify which diagnosis categories are most sensitive to valence language
+    \item Determine if specific attention heads show valence sensitivity
+    \item Assess whether effects vary by clinical context or patient demographics
+    \item Provide quantitative framework for testing other clinical NLP models
+\end{enumerate}
+
+\section{Methodology}
+
+\subsection{Model Architecture}
+
+\textbf{Primary Model:} BioBERT (bvanaken/CORe-clinical-outcome-biobert-v1)
+
+\begin{itemize}
+    \item 12 transformer layers, 12 attention heads per layer
+    \item Pre-trained on PubMed abstracts and clinical notes
+    \item Fine-tuned for multi-label diagnosis prediction (ICD codes)
+    \item 110M parameters
+\end{itemize}
+
+\subsection{Experimental Design}
+
+\subsubsection{Shift Transformations}
+
+We implement four systematic text transformations:
+
+\begin{table}[H]
+\centering
+\caption{Shift Types and Characteristics}
+\begin{tabular}{@{}llp{6cm}@{}}
+\toprule
+\textbf{Shift Type} & \textbf{Purpose} & \textbf{Example Transformation} \\ \midrule
+Pejorative & Test negative bias & ``Patient presents...'' $\rightarrow$ ``Difficult patient presents...'' \\
+Laudatory & Test positive bias & ``Patient presents...'' $\rightarrow$ ``Cooperative patient presents...'' \\
+Neutral Valence & Test objective language & ``Patient presents...'' $\rightarrow$ ``Typical patient presents...'' \\
+Neutralize & Establish baseline & ``Difficult patient presents...'' $\rightarrow$ ``Patient presents...'' \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Valence Term Categories}
+
+Each shift type contains hierarchical levels of intensity:
+
+\begin{table}[H]
+\centering
+\caption{Pejorative Shift Levels (Example)}
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Level} & \textbf{Terms} \\ \midrule
+Non-Compliant & ``non-compliant,'' ``noncompliant,'' ``poor compliance'' \\
+Uncooperative & ``uncooperative,'' ``refuses,'' ``declines'' \\
+Resistant & ``resistant,'' ``defensive,'' ``argumentative'' \\
+Difficult & ``difficult,'' ``challenging,'' ``problematic'' \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Data Processing Pipeline}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=2cm, auto,
+    block/.style={rectangle, draw, fill=clinicalblue!20, text width=5em, text centered, rounded corners, minimum height=3em},
+    decision/.style={diamond, draw, fill=pejorative!20, text width=4.5em, text badly centered, inner sep=0pt},
+    line/.style={draw, -latex'}]
+
+    \node [block] (original) {Original Clinical Text};
+    \node [block, below of=original] (identify) {Identify Valence Group};
+    \node [decision, below of=identify] (has) {Contains Valence?};
+    \node [block, below of=has, node distance=2.5cm] (apply) {Apply Shift Transformation};
+    \node [block, right of=apply, node distance=4cm] (skip) {Skip Sample};
+    \node [block, below of=apply] (tokenize) {Tokenize (BERT)};
+    \node [block, below of=tokenize] (model) {Model Inference};
+    \node [block, below of=model] (extract) {Extract Predictions \& Attention};
+
+    \path [line] (original) -- (identify);
+    \path [line] (identify) -- (has);
+    \path [line] (has) -- node [near start] {Yes} (apply);
+    \path [line] (has) -- node [near start] {No} (skip);
+    \path [line] (apply) -- (tokenize);
+    \path [line] (tokenize) -- (model);
+    \path [line] (model) -- (extract);
+\end{tikzpicture}
+\caption{Data Processing and Analysis Pipeline}
+\end{figure}
+
+\subsection{Attention Weight Extraction}
+
+We extract attention weights using the following methodology:
+
+\begin{enumerate}
+    \item \textbf{Layer Selection}: Extract from layer 11 (final layer, highest semantic content)
+    \item \textbf{Head Selection}: Analyze head 11 (configurable for robustness checks)
+    \item \textbf{Attention Direction}: FROM [CLS] token TO word tokens (classification attention)
+    \item \textbf{Sub-token Aggregation}: Average attention across BERT word-pieces
+    \item \textbf{Normalization}: Scale attention weights to sum to 1.0
+\end{enumerate}
+
+\textbf{Mathematical Formulation:}
+
+For a text with tokens $T = \{t_1, t_2, ..., t_n\}$, attention weights $A$ from [CLS]:
+
+\begin{equation}
+A_{raw} = \text{Attention}_{layer\_11, head\_11}[0, 1:n]
+\end{equation}
+
+\begin{equation}
+A_{normalized} = \frac{A_{raw}}{\sum_{i=1}^{n} A_{raw,i}}
+\end{equation}
+
+For words split into sub-tokens $\{s_1, s_2, ..., s_k\}$:
+
+\begin{equation}
+A_{word} = \frac{1}{k} \sum_{j=1}^{k} A_{normalized, s_j}
+\end{equation}
+
+\section{Experimental Setup}
+
+\subsection{Dataset}
+
+\begin{itemize}
+    \item \textbf{Source}: De-identified clinical notes
+    \item \textbf{Size}: XX,XXX samples
+    \item \textbf{Labels}: Multi-label ICD diagnosis codes
+    \item \textbf{Split}: Test set only (model pre-trained)
+    \item \textbf{Filtering}: Diagnoses occurring $\geq$ 100 times (N=XX codes)
+\end{itemize}
+
+\subsection{Hyperparameters}
+
+\begin{table}[H]
+\centering
+\caption{Model and Experimental Hyperparameters}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\ \midrule
+Batch Size & 128 \\
+Max Sequence Length & 512 tokens \\
+Attention Layer & 11 (0-indexed) \\
+Attention Head & 11 (0-indexed) \\
+Random Seed & 42 \\
+Deterministic Mode & Enabled \\
+GPU Acceleration & CUDA (if available) \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation Metrics}
+
+\subsubsection{Prediction Shift Metrics}
+
+\begin{enumerate}
+    \item \textbf{Mean Absolute Shift}: $\frac{1}{N} \sum_{i=1}^{N} |P_{shifted}^{(i)} - P_{original}^{(i)}|$
+    \item \textbf{Per-diagnosis Shift}: Track changes for each ICD code
+    \item \textbf{Shift Direction}: Positive (increased probability) vs. negative (decreased)
+\end{enumerate}
+
+\subsubsection{Attention Analysis Metrics}
+
+\begin{enumerate}
+    \item \textbf{Attention Concentration}: $\sum_{i \in \text{valence\_words}} A_i$
+    \item \textbf{Attention Entropy}: $H(A) = -\sum_{i=1}^{n} A_i \log A_i$
+    \item \textbf{Rank Comparison}: Rank of valence words vs. clinical terms
+\end{enumerate}
+
+\subsubsection{Statistical Tests}
+
+\begin{enumerate}
+    \item \textbf{Paired t-tests}: Compare predictions before/after shift
+    \item \textbf{Wilcoxon signed-rank}: Non-parametric alternative
+    \item \textbf{Effect sizes}: Cohen's d and Hedges' g
+    \item \textbf{Multiple comparison correction}: False Discovery Rate (FDR)
+\end{enumerate}
+
+\section{Expected Analyses and Visualizations}
+
+\subsection{Primary Analysis: Diagnosis Probability Shifts}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.9\textwidth,
+    height=6cm,
+    ybar,
+    bar width=15pt,
+    ylabel={Mean Probability Shift},
+    xlabel={Diagnosis Code (ICD)},
+    symbolic x coords={F32.9, F41.9, I10, E11.9, J44.9, M79.3, R07.9, Z87.891},
+    xtick=data,
+    x tick label style={rotate=45, anchor=east},
+    legend style={at={(0.5,-0.3)}, anchor=north, legend columns=3},
+    ymajorgrids=true,
+    grid style=dashed,
+]
+
+% Pejorative shift
+\addplot[fill=pejorative, draw=black] coordinates {
+    (F32.9, 0.XX) (F41.9, 0.XX) (I10, 0.XX) (E11.9, 0.XX)
+    (J44.9, 0.XX) (M79.3, 0.XX) (R07.9, 0.XX) (Z87.891, 0.XX)
+};
+
+% Laudatory shift
+\addplot[fill=laudatory, draw=black] coordinates {
+    (F32.9, 0.XX) (F41.9, 0.XX) (I10, 0.XX) (E11.9, 0.XX)
+    (J44.9, 0.XX) (M79.3, 0.XX) (R07.9, 0.XX) (Z87.891, 0.XX)
+};
+
+% Neutral shift
+\addplot[fill=neutral, draw=black] coordinates {
+    (F32.9, 0.XX) (F41.9, 0.XX) (I10, 0.XX) (E11.9, 0.XX)
+    (J44.9, 0.XX) (M79.3, 0.XX) (R07.9, 0.XX) (Z87.891, 0.XX)
+};
+
+\legend{Pejorative, Laudatory, Neutral}
+\end{axis}
+\end{tikzpicture}
+\caption{Mean probability shifts across diagnosis categories and valence types. Placeholder values (0.XX) represent expected shifts in diagnosis probabilities. F-codes: Mental/behavioral disorders; I-codes: Circulatory diseases; E-codes: Endocrine/metabolic; J-codes: Respiratory; M-codes: Musculoskeletal; R-codes: Symptoms; Z-codes: Factors influencing health status.}
+\end{figure}
+
+\subsection{Attention Weight Distribution}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.9\textwidth,
+    height=6cm,
+    boxplot/draw direction=y,
+    ylabel={Attention Weight},
+    xlabel={Word Category},
+    xtick={1,2,3,4},
+    xticklabels={Valence Terms, Clinical Symptoms, Anatomical Terms, Other Words},
+    x tick label style={rotate=45, anchor=east},
+    ymajorgrids=true,
+    grid style=dashed,
+]
+
+% Placeholder boxplot data
+\addplot+[boxplot prepared={
+    median=0.XX,
+    upper quartile=0.XX,
+    lower quartile=0.XX,
+    upper whisker=0.XX,
+    lower whisker=0.XX
+}, fill=pejorative!50] coordinates {};
+
+\addplot+[boxplot prepared={
+    median=0.XX,
+    upper quartile=0.XX,
+    lower quartile=0.XX,
+    upper whisker=0.XX,
+    lower whisker=0.XX
+}, fill=clinicalblue!50] coordinates {};
+
+\addplot+[boxplot prepared={
+    median=0.XX,
+    upper quartile=0.XX,
+    lower quartile=0.XX,
+    upper whisker=0.XX,
+    lower whisker=0.XX
+}, fill=clinicalblue!30] coordinates {};
+
+\addplot+[boxplot prepared={
+    median=0.XX,
+    upper quartile=0.XX,
+    lower quartile=0.XX,
+    upper whisker=0.XX,
+    lower whisker=0.XX
+}, fill=neutral!30] coordinates {};
+
+\end{axis}
+\end{tikzpicture}
+\caption{Distribution of attention weights across word categories. Placeholder data (0.XX) shows expected attention distributions. Higher attention indicates greater influence on prediction.}
+\end{figure}
+
+\subsection{Hypothesis: Valence-Specific Effects}
+
+\begin{table}[H]
+\centering
+\caption{Expected Hypotheses and Statistical Framework}
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Hypothesis} & \textbf{Statistical Test} \\ \midrule
+H1: Pejorative terms increase psychiatric diagnosis probabilities & Paired t-test: $P(\text{F-codes})_{pejorative} > P(\text{F-codes})_{neutral}$ \\
+H2: Laudatory terms decrease substance abuse diagnosis probabilities & Wilcoxon test: $P(\text{F11-F19})_{laudatory} < P(\text{F11-F19})_{neutral}$ \\
+H3: Model attention focuses disproportionately on valence words & $\sum A_{valence} > \sum A_{clinical}$ with paired t-test \\
+H4: Effects persist across attention layers & ANOVA across layers 9-11 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Attention Heatmap (Example Sample)}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.9\textwidth,
+    height=4cm,
+    xlabel={Word Position in Text},
+    ylabel={Attention Weight},
+    ymin=0,
+    ymax=0.25,
+    ymajorgrids=true,
+    grid style=dashed,
+    legend pos=north east,
+]
+
+% Original text attention
+\addplot[color=clinicalblue, mark=*, line width=1.5pt] coordinates {
+    (1, 0.XX) (2, 0.XX) (3, 0.XX) (4, 0.XX) (5, 0.XX)
+    (6, 0.XX) (7, 0.XX) (8, 0.XX) (9, 0.XX) (10, 0.XX)
+};
+
+% Shifted text attention (with valence word at position 2)
+\addplot[color=pejorative, mark=square*, line width=1.5pt, dashed] coordinates {
+    (1, 0.XX) (2, 0.XX) (3, 0.XX) (4, 0.XX) (5, 0.XX)
+    (6, 0.XX) (7, 0.XX) (8, 0.XX) (9, 0.XX) (10, 0.XX)
+};
+
+\legend{Original Text, With Pejorative Term}
+
+% Annotate where valence word is inserted
+\node[pin={90:{Valence word}}] at (axis cs:2,0.XX) {};
+
+\end{axis}
+\end{tikzpicture}
+\caption{Attention weight comparison before and after valence term insertion. Placeholder values (0.XX) represent expected attention distributions. Peak at position 2 indicates where valence term draws model attention.}
+\end{figure}
+
+\subsection{Statistical Significance Summary}
+
+\begin{table}[H]
+\centering
+\caption{Expected Statistical Results Framework (Placeholders)}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Comparison} & \textbf{t-statistic} & \textbf{p-value} & \textbf{Cohen's d} & \textbf{Significant?} \\ \midrule
+Pejorative vs. Neutralize & X.XX & 0.XXX & 0.XX & Yes/No \\
+Laudatory vs. Neutralize & X.XX & 0.XXX & 0.XX & Yes/No \\
+Neutral vs. Neutralize & X.XX & 0.XXX & 0.XX & Yes/No \\
+Pejorative vs. Laudatory & X.XX & 0.XXX & 0.XX & Yes/No \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\noindent \textbf{Significance threshold}: $p < 0.05$ after FDR correction
+
+\noindent \textbf{Effect size interpretation}: $|d| < 0.2$: small, $0.2 \leq |d| < 0.5$: medium, $|d| \geq 0.5$: large
+
+\section{Technical Implementation}
+
+\subsection{Software Architecture}
+
+\begin{table}[H]
+\centering
+\caption{Technical Stack}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Component} & \textbf{Technology} \\ \midrule
+Language & Python 3.8+ \\
+Deep Learning & PyTorch 2.0+ \\
+Transformers & HuggingFace Transformers 4.44.2 \\
+Statistical Analysis & SciPy, statsmodels \\
+Visualization & Matplotlib, Seaborn, Plotly \\
+Configuration & YAML, dataclasses \\
+Logging & Python logging with colored output \\
+Version Control & Git \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Reproducibility Measures}
+
+\begin{enumerate}
+    \item \textbf{Random Seed Control}: Fixed seed (42) for all stochastic operations
+    \item \textbf{Deterministic Mode}: PyTorch deterministic algorithms enabled
+    \item \textbf{Version Pinning}: All dependencies version-locked
+    \item \textbf{Configuration Management}: YAML-based parameter tracking
+    \item \textbf{Checkpointing}: Regular saving of intermediate results
+    \item \textbf{Comprehensive Logging}: All operations logged with timestamps
+\end{enumerate}
+
+\subsection{Computational Requirements}
+
+\begin{itemize}
+    \item \textbf{GPU}: NVIDIA GPU with 8GB+ VRAM (recommended)
+    \item \textbf{RAM}: 16GB minimum, 32GB recommended
+    \item \textbf{Storage}: 50GB for models and results
+    \item \textbf{Processing Time}: $\sim$XX hours for full dataset (GPU), $\sim$XX hours (CPU)
+\end{itemize}
+
+\section{Quality Assurance}
+
+\subsection{Validation Procedures}
+
+\begin{enumerate}
+    \item \textbf{Attention Weight Validation}:
+    \begin{itemize}
+        \item Verify attention weights sum to 1.0 (tolerance: $\pm 0.01$)
+        \item Check for numerical stability (no NaN or Inf values)
+        \item Validate word-token mapping correctness
+    \end{itemize}
+
+    \item \textbf{Shift Application Validation}:
+    \begin{itemize}
+        \item Manual review of XX random shifted samples per shift type
+        \item Verify valence terms inserted at correct positions
+        \item Check for unintended text corruption
+    \end{itemize}
+
+    \item \textbf{Statistical Validity}:
+    \begin{itemize}
+        \item Check distributional assumptions (normality tests)
+        \item Verify paired sample alignment
+        \item Validate multiple comparison correction
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Code Quality}
+
+\begin{itemize}
+    \item \textbf{Type Hints}: All functions annotated with type information
+    \item \textbf{Docstrings}: Comprehensive documentation for all modules
+    \item \textbf{Unit Tests}: Critical functions tested with pytest
+    \item \textbf{Code Review}: Multi-round review including attention calculation audit
+    \item \textbf{Linting}: PEP 8 compliance verified
+\end{itemize}
+
+\section{Limitations and Considerations}
+
+\subsection{Methodological Limitations}
+
+\begin{enumerate}
+    \item \textbf{Attention as Explanation}: Attention weights may not fully explain model decisions \citep{jain2019attention}
+    \item \textbf{Single Model}: Results specific to BioBERT; generalization requires multi-model testing
+    \item \textbf{Controlled Perturbations}: Real clinical language may be more complex
+    \item \textbf{Static Analysis}: Does not capture temporal effects in longitudinal records
+\end{enumerate}
+
+\subsection{Dataset Considerations}
+
+\begin{enumerate}
+    \item \textbf{De-identification}: May alter linguistic patterns
+    \item \textbf{Selection Bias}: Test set may not represent all clinical contexts
+    \item \textbf{Label Quality}: ICD coding accuracy depends on original clinician documentation
+    \item \textbf{Class Imbalance}: Some diagnoses underrepresented
+\end{enumerate}
+
+\subsection{Interpretation Caveats}
+
+\begin{enumerate}
+    \item Correlation does not imply causation in model behavior
+    \item Statistical significance does not guarantee clinical significance
+    \item Effect sizes should be interpreted in clinical context
+    \item Model behavior in deployment may differ from experimental setting
+\end{enumerate}
+
+\section{Expected Impact and Applications}
+
+\subsection{Scientific Contributions}
+
+\begin{enumerate}
+    \item \textbf{Bias Quantification}: Empirical evidence of valence effects in clinical NLP
+    \item \textbf{Methodological Framework}: Reusable approach for testing other models
+    \item \textbf{Attention Analysis}: Insights into transformer decision-making
+    \item \textbf{Fairness Research}: Contributes to AI fairness in healthcare
+\end{enumerate}
+
+\subsection{Clinical Implications}
+
+\begin{enumerate}
+    \item \textbf{Model Development}: Inform debiasing strategies for clinical NLP
+    \item \textbf{Deployment Guidelines}: Risk assessment for clinical AI systems
+    \item \textbf{Provider Education}: Awareness of language impact on AI tools
+    \item \textbf{Quality Improvement}: Better documentation practices
+\end{enumerate}
+
+\subsection{Regulatory Relevance}
+
+\begin{enumerate}
+    \item FDA guidance on bias testing for medical AI devices
+    \item EU AI Act requirements for high-risk systems
+    \item Clinical validation standards (ISO 13485)
+    \item Health equity mandates in healthcare AI
+\end{enumerate}
+
+\section{Timeline and Milestones}
+
+\begin{table}[H]
+\centering
+\caption{Expected Research Timeline}
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Phase} & \textbf{Activities} \\ \midrule
+Month 1-2 & Data preparation, shift validation, initial experiments \\
+Month 3-4 & Full experimental runs, attention analysis, statistical testing \\
+Month 5 & Result interpretation, visualization, supplementary analyses \\
+Month 6 & Manuscript preparation, peer review, publication submission \\
+Ongoing & Code release, documentation, community engagement \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{Dissemination Plan}
+
+\subsection{Publications}
+
+\begin{enumerate}
+    \item \textbf{Primary Paper}: Top-tier venue (e.g., EMNLP, NAACL, Journal of Biomedical Informatics)
+    \item \textbf{Workshop Papers}: Specialized venues (e.g., Clinical NLP Workshop, AI for Health)
+    \item \textbf{Preprint}: arXiv/bioRxiv for rapid dissemination
+\end{enumerate}
+
+\subsection{Code and Data Release}
+
+\begin{enumerate}
+    \item \textbf{GitHub Repository}: Open-source framework with documentation
+    \item \textbf{Hugging Face}: Model cards and demo interface
+    \item \textbf{Zenodo}: Archived version with DOI
+    \item \textbf{Data}: Synthetic examples and processing scripts (privacy-compliant)
+\end{enumerate}
+
+\subsection{Community Engagement}
+
+\begin{enumerate}
+    \item Conference presentations and posters
+    \item Blog posts and tutorials
+    \item Webinars for clinical and AI communities
+    \item Collaboration with clinical informatics programs
+\end{enumerate}
+
+\section{Ethical Considerations}
+
+\subsection{Data Privacy}
+
+\begin{itemize}
+    \item All clinical data de-identified per HIPAA standards
+    \item No PHI in released code or publications
+    \item IRB approval obtained (if required by institution)
+    \item Data use agreements followed strictly
+\end{itemize}
+
+\subsection{Research Ethics}
+
+\begin{itemize}
+    \item Transparent reporting of limitations
+    \item Acknowledgment of potential misuse scenarios
+    \item Responsible disclosure of bias findings
+    \item Engagement with affected communities
+\end{itemize}
+
+\subsection{Dual-Use Considerations}
+
+\begin{itemize}
+    \item Methods could be used to identify model vulnerabilities
+    \item Results may be misinterpreted as endorsing biased language
+    \item Clear communication about intended use for bias reduction
+    \item Safeguards against adversarial applications
+\end{itemize}
+
+\section{Conclusion}
+
+This research provides a systematic framework for investigating how valence-laden language influences clinical NLP model predictions. By combining controlled linguistic perturbations with attention analysis and rigorous statistical testing, we aim to:
+
+\begin{itemize}
+    \item Quantify the extent of valence bias in clinical diagnosis prediction
+    \item Identify specific vulnerabilities in transformer-based models
+    \item Provide actionable insights for model developers and clinicians
+    \item Contribute to the broader goal of fair and trustworthy clinical AI
+\end{itemize}
+
+The technical rigor of our methodology, combined with comprehensive validation and reproducibility measures, ensures that our findings will be scientifically robust and clinically relevant. We anticipate that this work will inform best practices for developing, testing, and deploying clinical NLP systems while highlighting the importance of linguistic fairness in healthcare AI.
+
+\section*{Acknowledgments}
+
+We acknowledge the original work by van Aken et al. \citep{vanaken2021behavioral} on behavioral testing of clinical NLP models, which inspired this research direction. We thank the developers of BioBERT, HuggingFace Transformers, and the broader clinical NLP community for their foundational contributions.
+
+\section*{Availability}
+
+\begin{itemize}
+    \item \textbf{Code}: \url{https://github.com/gyasifred/clinical-valence-testing}
+    \item \textbf{Documentation}: Comprehensive guides included in repository
+    \item \textbf{Pre-trained Models}: Available via HuggingFace Model Hub
+    \item \textbf{Contact}: [Research Team Email]
+\end{itemize}
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+
+\bibitem{lee2020biobert}
+Lee, J., Yoon, W., Kim, S., Kim, D., Kim, S., So, C. H., \& Kang, J. (2020).
+\newblock BioBERT: a pre-trained biomedical language representation model for biomedical text mining.
+\newblock \textit{Bioinformatics}, 36(4), 1234-1240.
+
+\bibitem{vanaken2021behavioral}
+van Aken, B., Herrmann, S., \& Löser, A. (2021).
+\newblock What Do You See in this Patient? Behavioral Testing of Clinical NLP Models.
+\newblock In \textit{Bridging the Gap: From Machine Learning Research to Clinical Practice, Research2Clinics Workshop @ NeurIPS 2021}.
+
+\bibitem{jain2019attention}
+Jain, S., \& Wallace, B. C. (2019).
+\newblock Attention is not Explanation.
+\newblock In \textit{Proceedings of NAACL-HLT 2019}, pages 3543-3556.
+
+\end{thebibliography}
+
+\appendix
+
+\section{Appendix A: Valence Term Dictionary}
+
+\subsection{Pejorative Terms (Complete List)}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Category} & \textbf{Terms} \\ \midrule
+Non-Compliant & non-compliant, noncompliant, poor compliance, ... \\
+Uncooperative & uncooperative, refuses treatment, declines, ... \\
+Resistant & resistant, defensive, argumentative, hostile, ... \\
+Difficult & difficult, challenging, problematic, demanding, ... \\ \bottomrule
+\end{tabular}
+\caption{Subset of pejorative terms (full list: XX terms)}
+\end{table}
+
+\subsection{Laudatory Terms (Complete List)}
+
+Similar structure for laudatory and neutral term dictionaries available in supplementary materials.
+
+\section{Appendix B: Sample Output Format}
+
+\subsection{Diagnosis Prediction Output}
+
+\begin{verbatim}
+NoteID,Valence,Val_class,I10,E11.9,F41.9,...
+0001,difficult,pejorative,0.XX,0.XX,0.XX,...
+0001,cooperative,laudatory,0.XX,0.XX,0.XX,...
+\end{verbatim}
+
+\subsection{Attention Weight Output}
+
+\begin{verbatim}
+NoteID,Word,AttentionWeight,Valence,Val_class
+0001,patient,0.XX,difficult,pejorative
+0001,difficult,0.XX,difficult,pejorative
+0001,presents,0.XX,difficult,pejorative
+\end{verbatim}
+
+\section{Appendix C: Statistical Analysis Pseudocode}
+
+\begin{verbatim}
+for each diagnosis code:
+    extract predictions for all samples across valence types
+
+    # Paired t-test
+    t_stat, p_value = paired_ttest(
+        pejorative_predictions,
+        neutralize_predictions
+    )
+
+    # Effect size
+    cohens_d = (mean(pejorative) - mean(neutralize)) /
+               pooled_std_dev
+
+    # Multiple comparison correction
+    corrected_p_values = fdr_correction(all_p_values)
+
+    # Report significant findings (p < 0.05)
+\end{verbatim}
+
+\end{document}
