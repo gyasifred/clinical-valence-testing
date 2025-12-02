@@ -90,13 +90,39 @@ class TransformerPredictor(Predictor):
         
     @torch.no_grad()
     def inference_from_texts(self, text: str, layer_num: int, head_num: int, aggregation: str) -> Tuple[List[float], List[str], torch.Tensor]:
+        """
+        Extract attention weights and predictions for clinical text.
+
+        Extracts attention FROM [CLS] token TO word tokens, showing which words
+        the model focuses on for classification. Aggregates sub-token attention
+        to word-level and normalizes for fair comparison across samples.
+
+        Args:
+            text: Clinical text to analyze
+            layer_num: Transformer layer (0-11 for BioBERT, higher=more semantic)
+            head_num: Attention head (0-11 for BioBERT, different heads focus on different patterns)
+            aggregation: How to aggregate sub-tokens: "average" (recommended), "sum", or "max"
+
+        Returns:
+            attention_weights: Normalized word-level attention weights
+            words: List of words (de-tokenized from sub-tokens)
+            logits: Model prediction logits
+        """
         inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512).to(self.device)
-        
+
         self.model.eval()
         outputs = self.model(**inputs, output_attentions=True)
-        
+
+        # Extract attention from specified layer and head
         attentions = outputs.attentions[layer_num][0][head_num].cpu().numpy()
-        cls_attention = attentions[0, :][1:-1]
+
+        # Get attention FROM [CLS] token TO all other tokens (standard for classification)
+        cls_attention = attentions[0, :][1:-1]  # Exclude [CLS] and [SEP] tokens
+
+        # Normalize attention weights to sum to 1.0 for fair comparison across samples
+        if cls_attention.sum() > 0:
+            cls_attention = cls_attention / cls_attention.sum()
+
         words = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][0])[1:-1]
 
         final_attention_weights, input_words = [], []
@@ -271,11 +297,13 @@ class DiagnosisPredictor(TransformerPredictor):
             shift_type = self._get_shift_base_name(group_name)
             
             for note_id, sample in zip(note_ids, batch_texts):
+                # Use average aggregation to normalize attention by sub-token count
+                # This prevents bias where longer words (more sub-tokens) get artificially higher attention
                 attention_weights, words, logits = super().inference_from_texts(
-                    sample, 
-                    layer_num=self.layer_num, 
-                    head_num=self.head_num, 
-                    aggregation="sum"
+                    sample,
+                    layer_num=self.layer_num,
+                    head_num=self.head_num,
+                    aggregation="average"  # Fixed: was "sum" which caused sub-token bias
                 )
                 
                 diagnosis_probs = torch.sigmoid(logits).cpu().numpy().squeeze()
