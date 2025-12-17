@@ -251,6 +251,195 @@ class StatisticalAnalyzer:
             }
         )
 
+    def paired_permutation_test(
+        self,
+        baseline: np.ndarray,
+        treatment: np.ndarray,
+        n_permutations: int = 10000,
+        alternative: str = "two-sided",
+        random_seed: Optional[int] = None
+    ) -> StatisticalTestResult:
+        """
+        Perform paired permutation test (approximate randomization).
+
+        This is a non-parametric test that doesn't assume normality.
+        It tests whether the observed difference is significant by
+        randomly permuting the assignment of baseline/treatment labels.
+
+        Reference: Yeh (2000) - More Accurate Tests for the Statistical
+        Significance of Result Differences.
+
+        Args:
+            baseline: Baseline group observations
+            treatment: Treatment group observations
+            n_permutations: Number of random permutations
+            alternative: Alternative hypothesis ('two-sided', 'greater', 'less')
+            random_seed: Random seed for reproducibility
+
+        Returns:
+            StatisticalTestResult with permutation p-value
+        """
+        if random_seed is not None:
+            np.random.seed(random_seed)
+
+        # Calculate observed difference
+        observed_diff = np.mean(treatment - baseline)
+
+        # Generate permutations
+        n_samples = len(baseline)
+        count_extreme = 0
+
+        # Vectorized approach for efficiency
+        flip_masks = np.random.choice([-1, 1], size=(n_permutations, n_samples))
+        diffs = treatment - baseline
+        permuted_diffs = flip_masks * diffs[np.newaxis, :]
+        permuted_means = np.mean(permuted_diffs, axis=1)
+
+        # Count extreme values based on alternative hypothesis
+        if alternative == "two-sided":
+            count_extreme = np.sum(np.abs(permuted_means) >= abs(observed_diff))
+        elif alternative == "greater":
+            count_extreme = np.sum(permuted_means >= observed_diff)
+        elif alternative == "less":
+            count_extreme = np.sum(permuted_means <= observed_diff)
+
+        # Calculate p-value
+        p_value = (count_extreme + 1) / (n_permutations + 1)
+
+        # Calculate effect size (same as paired t-test)
+        effect_size = self.cohens_d(treatment, baseline, paired=True)
+
+        # Bootstrap CI for mean difference
+        _, ci = self.bootstrap_confidence_interval(
+            treatment - baseline,
+            np.mean,
+            n_bootstrap=5000
+        )
+
+        return StatisticalTestResult(
+            test_name="Paired Permutation Test",
+            statistic=observed_diff,
+            p_value=p_value,
+            significant=p_value < self.significance_level,
+            effect_size=effect_size,
+            confidence_interval=ci,
+            additional_info={
+                'n_permutations': n_permutations,
+                'alternative': alternative,
+                'mean_difference': observed_diff,
+                'method': 'approximate_randomization'
+            }
+        )
+
+    def stratified_permutation_test(
+        self,
+        baseline_binary: np.ndarray,
+        treatment_binary: np.ndarray,
+        n_permutations: int = 10000,
+        random_seed: Optional[int] = None
+    ) -> StatisticalTestResult:
+        """
+        Stratified permutation test for binary classification outcomes.
+
+        Stratifies by agreement pattern:
+        - Both positive (TP-TP): Keep fixed
+        - Both negative (TN-TN): Keep fixed
+        - Baseline+/Treatment- (TP-FN): Randomize
+        - Baseline-/Treatment+ (FN-TP): Randomize
+
+        This preserves the comparison structure while testing significance,
+        following Yeh (2000)'s stratified randomization approach.
+
+        Args:
+            baseline_binary: Binary predictions for baseline (0 or 1)
+            treatment_binary: Binary predictions for treatment (0 or 1)
+            n_permutations: Number of permutations
+            random_seed: Random seed
+
+        Returns:
+            StatisticalTestResult with accuracy difference and p-value
+        """
+        if random_seed is not None:
+            np.random.seed(random_seed)
+
+        # Identify strata
+        both_positive = (baseline_binary == 1) & (treatment_binary == 1)
+        both_negative = (baseline_binary == 0) & (treatment_binary == 0)
+        baseline_only = (baseline_binary == 1) & (treatment_binary == 0)
+        treatment_only = (baseline_binary == 0) & (treatment_binary == 1)
+
+        # Calculate observed accuracy difference
+        observed_metric = np.mean(treatment_binary) - np.mean(baseline_binary)
+
+        count_extreme = 0
+        n_disagree = np.sum(baseline_only) + np.sum(treatment_only)
+
+        if n_disagree == 0:
+            # No disagreements - perfect agreement
+            return StatisticalTestResult(
+                test_name="Stratified Permutation Test",
+                statistic=0.0,
+                p_value=1.0,
+                significant=False,
+                additional_info={
+                    'n_permutations': n_permutations,
+                    'n_both_positive': int(np.sum(both_positive)),
+                    'n_both_negative': int(np.sum(both_negative)),
+                    'n_disagreements': 0,
+                    'note': 'Perfect agreement - no permutation needed'
+                }
+            )
+
+        disagree_indices = np.where(baseline_only | treatment_only)[0]
+        n_baseline_only = np.sum(baseline_only)
+
+        for _ in range(n_permutations):
+            # Create permuted arrays
+            perm_baseline = baseline_binary.copy()
+            perm_treatment = treatment_binary.copy()
+
+            # Randomly reassign disagreements
+            random_assignment = np.random.permutation(n_disagree)
+            new_baseline_only_idx = disagree_indices[random_assignment < n_baseline_only]
+            new_treatment_only_idx = disagree_indices[random_assignment >= n_baseline_only]
+
+            # Reset disagreement positions
+            perm_baseline[disagree_indices] = 0
+            perm_treatment[disagree_indices] = 0
+
+            # Set new assignments
+            perm_baseline[new_baseline_only_idx] = 1
+            perm_treatment[new_treatment_only_idx] = 1
+
+            # Preserve agreement strata
+            perm_baseline[both_positive] = 1
+            perm_treatment[both_positive] = 1
+            perm_baseline[both_negative] = 0
+            perm_treatment[both_negative] = 0
+
+            # Calculate permuted metric
+            permuted_metric = np.mean(perm_treatment) - np.mean(perm_baseline)
+
+            if abs(permuted_metric) >= abs(observed_metric):
+                count_extreme += 1
+
+        p_value = (count_extreme + 1) / (n_permutations + 1)
+
+        return StatisticalTestResult(
+            test_name="Stratified Permutation Test",
+            statistic=observed_metric,
+            p_value=p_value,
+            significant=p_value < self.significance_level,
+            additional_info={
+                'n_permutations': n_permutations,
+                'n_both_positive': int(np.sum(both_positive)),
+                'n_both_negative': int(np.sum(both_negative)),
+                'n_baseline_only': int(np.sum(baseline_only)),
+                'n_treatment_only': int(np.sum(treatment_only)),
+                'method': 'stratified_randomization'
+            }
+        )
+
     def bootstrap_confidence_interval(
         self,
         data: np.ndarray,
@@ -320,7 +509,10 @@ class StatisticalAnalyzer:
         self,
         baseline_probs: pd.DataFrame,
         treatment_probs: pd.DataFrame,
-        diagnosis_codes: List[str]
+        diagnosis_codes: List[str],
+        use_permutation: bool = True,
+        n_permutations: int = 10000,
+        random_seed: Optional[int] = None
     ) -> pd.DataFrame:
         """
         Comprehensive analysis of diagnosis probability shifts.
@@ -329,6 +521,9 @@ class StatisticalAnalyzer:
             baseline_probs: Baseline diagnosis probabilities (samples × diagnoses)
             treatment_probs: Treatment diagnosis probabilities (samples × diagnoses)
             diagnosis_codes: List of diagnosis codes
+            use_permutation: Whether to include permutation tests (default: True)
+            n_permutations: Number of permutations for randomization tests
+            random_seed: Random seed for permutation tests
 
         Returns:
             DataFrame with analysis results per diagnosis
@@ -343,9 +538,18 @@ class StatisticalAnalyzer:
             baseline = baseline_probs[code].values
             treatment = treatment_probs[code].values
 
-            # Perform tests
+            # Perform traditional parametric tests
             ttest_result = self.paired_ttest(baseline, treatment)
             wilcoxon_result = self.wilcoxon_test(baseline, treatment)
+
+            # Perform permutation test (approximate randomization)
+            if use_permutation:
+                perm_result = self.paired_permutation_test(
+                    baseline,
+                    treatment,
+                    n_permutations=n_permutations,
+                    random_seed=random_seed
+                )
 
             # Calculate additional statistics
             mean_shift = np.mean(treatment - baseline)
@@ -359,7 +563,7 @@ class StatisticalAnalyzer:
                 n_bootstrap=5000
             )
 
-            results.append({
+            result_dict = {
                 'diagnosis_code': code,
                 'mean_shift': mean_shift,
                 'median_shift': median_shift,
@@ -375,7 +579,16 @@ class StatisticalAnalyzer:
                 'baseline_std': np.std(baseline),
                 'treatment_mean': np.mean(treatment),
                 'treatment_std': np.std(treatment)
-            })
+            }
+
+            # Add permutation test results if enabled
+            if use_permutation:
+                result_dict.update({
+                    'permutation_pvalue': perm_result.p_value,
+                    'permutation_n_permutations': n_permutations
+                })
+
+            results.append(result_dict)
 
         results_df = pd.DataFrame(results)
 
@@ -393,6 +606,19 @@ class StatisticalAnalyzer:
             results_df['wilcoxon_pvalue_corrected'] = corrected_p_wilcoxon
             results_df['wilcoxon_significant'] = rejected_wilcoxon
 
+            # Apply correction to permutation p-values if enabled
+            if use_permutation and 'permutation_pvalue' in results_df.columns:
+                rejected_perm, corrected_p_perm = self.correct_multiple_comparisons(
+                    results_df['permutation_pvalue'].values
+                )
+                results_df['permutation_pvalue_corrected'] = corrected_p_perm
+                results_df['permutation_significant'] = rejected_perm
+
+                logger.info(
+                    f"Permutation tests: {np.sum(rejected_perm)}/{len(results_df)} "
+                    f"diagnoses significant after correction"
+                )
+
         return results_df
 
     def analyze_attention_shifts(
@@ -400,7 +626,10 @@ class StatisticalAnalyzer:
         baseline_attention: pd.DataFrame,
         treatment_attention: pd.DataFrame,
         words: List[str],
-        top_n: int = 50
+        top_n: int = 50,
+        use_permutation: bool = True,
+        n_permutations: int = 10000,
+        random_seed: Optional[int] = None
     ) -> pd.DataFrame:
         """
         Analyze attention weight shifts for words.
@@ -410,6 +639,9 @@ class StatisticalAnalyzer:
             treatment_attention: Treatment attention weights (samples × words)
             words: List of words to analyze
             top_n: Number of top words to return
+            use_permutation: Whether to include permutation tests (default: True)
+            n_permutations: Number of permutations for randomization tests
+            random_seed: Random seed for permutation tests
 
         Returns:
             DataFrame with attention shift analysis
@@ -427,10 +659,10 @@ class StatisticalAnalyzer:
             mean_shift = np.mean(treatment - baseline)
             effect_size = self.cohens_d(treatment, baseline, paired=True)
 
-            # Test significance
+            # Test significance with parametric test
             ttest_result = self.paired_ttest(baseline, treatment)
 
-            results.append({
+            result_dict = {
                 'word': word,
                 'mean_shift': mean_shift,
                 'abs_mean_shift': abs(mean_shift),
@@ -438,7 +670,19 @@ class StatisticalAnalyzer:
                 'ttest_pvalue': ttest_result.p_value,
                 'baseline_mean': np.mean(baseline),
                 'treatment_mean': np.mean(treatment)
-            })
+            }
+
+            # Add permutation test if enabled
+            if use_permutation:
+                perm_result = self.paired_permutation_test(
+                    baseline,
+                    treatment,
+                    n_permutations=n_permutations,
+                    random_seed=random_seed
+                )
+                result_dict['permutation_pvalue'] = perm_result.p_value
+
+            results.append(result_dict)
 
         results_df = pd.DataFrame(results)
 
@@ -452,6 +696,14 @@ class StatisticalAnalyzer:
             )
             results_df['ttest_pvalue_corrected'] = corrected_p
             results_df['significant'] = rejected
+
+            # Apply correction to permutation p-values if enabled
+            if use_permutation and 'permutation_pvalue' in results_df.columns:
+                rejected_perm, corrected_p_perm = self.correct_multiple_comparisons(
+                    results_df['permutation_pvalue'].values
+                )
+                results_df['permutation_pvalue_corrected'] = corrected_p_perm
+                results_df['permutation_significant'] = rejected_perm
 
         return results_df
 
@@ -528,6 +780,9 @@ class StatisticalAnalyzer:
         Returns:
             Report as string
         """
+        # Check if permutation tests were used
+        has_permutation = 'permutation_pvalue' in diagnosis_results.columns
+
         report_lines = [
             "=" * 80,
             "STATISTICAL ANALYSIS REPORT",
@@ -535,22 +790,30 @@ class StatisticalAnalyzer:
             "",
             f"Significance level: {self.significance_level}",
             f"Multiple comparison correction: {self.correction_method}",
+        ]
+
+        if has_permutation:
+            n_perm = diagnosis_results['permutation_n_permutations'].iloc[0] if 'permutation_n_permutations' in diagnosis_results.columns else 'N/A'
+            report_lines.append(f"Permutation testing: ENABLED (n_permutations={n_perm})")
+            report_lines.append("Reference: Yeh (2000) - Approximate Randomization")
+
+        report_lines.extend([
             "",
             "=" * 80,
             "DIAGNOSIS PROBABILITY SHIFTS",
             "=" * 80,
             ""
-        ]
+        ])
 
-        # Significant diagnoses
+        # Significant diagnoses - Parametric tests
         if 'ttest_significant' in diagnosis_results.columns:
             sig_diagnoses = diagnosis_results[diagnosis_results['ttest_significant']]
-            report_lines.append(f"Significant diagnoses (after correction): {len(sig_diagnoses)}/{len(diagnosis_results)}")
+            report_lines.append(f"Significant diagnoses - Paired t-test (after correction): {len(sig_diagnoses)}/{len(diagnosis_results)}")
             report_lines.append("")
 
             if len(sig_diagnoses) > 0:
-                report_lines.append("Top 10 most affected diagnoses:")
-                top_diagnoses = sig_diagnoses.nlargest(10, 'abs(mean_shift)' if 'abs(mean_shift)' in sig_diagnoses.columns else 'mean_shift')
+                report_lines.append("Top 10 most affected diagnoses (t-test):")
+                top_diagnoses = sig_diagnoses.nlargest(10, 'mean_shift', key=abs)
 
                 for _, row in top_diagnoses.iterrows():
                     effect_interp = self.effect_size_interpretation(row['cohens_d'])
@@ -558,12 +821,51 @@ class StatisticalAnalyzer:
                         f"  {row['diagnosis_code']}: "
                         f"mean_shift={row['mean_shift']:.6f}, "
                         f"d={row['cohens_d']:.3f} ({effect_interp}), "
-                        f"p={row['ttest_pvalue_corrected']:.4e}"
+                        f"p_ttest={row['ttest_pvalue_corrected']:.4e}"
                     )
                 report_lines.append("")
 
+        # Significant diagnoses - Permutation tests
+        if has_permutation and 'permutation_significant' in diagnosis_results.columns:
+            sig_diagnoses_perm = diagnosis_results[diagnosis_results['permutation_significant']]
+            report_lines.append(f"Significant diagnoses - Permutation test (after correction): {len(sig_diagnoses_perm)}/{len(diagnosis_results)}")
+            report_lines.append("")
+
+            if len(sig_diagnoses_perm) > 0:
+                report_lines.append("Top 10 most affected diagnoses (permutation test):")
+                top_diagnoses_perm = sig_diagnoses_perm.nlargest(10, 'mean_shift', key=abs)
+
+                for _, row in top_diagnoses_perm.iterrows():
+                    effect_interp = self.effect_size_interpretation(row['cohens_d'])
+                    report_lines.append(
+                        f"  {row['diagnosis_code']}: "
+                        f"mean_shift={row['mean_shift']:.6f}, "
+                        f"d={row['cohens_d']:.3f} ({effect_interp}), "
+                        f"p_perm={row['permutation_pvalue_corrected']:.4e}"
+                    )
+                report_lines.append("")
+
+            # Comparison of t-test vs permutation test
+            if 'ttest_significant' in diagnosis_results.columns:
+                ttest_sig = set(diagnosis_results[diagnosis_results['ttest_significant']]['diagnosis_code'])
+                perm_sig = set(diagnosis_results[diagnosis_results['permutation_significant']]['diagnosis_code'])
+
+                agreement = len(ttest_sig & perm_sig)
+                ttest_only = len(ttest_sig - perm_sig)
+                perm_only = len(perm_sig - ttest_sig)
+
+                report_lines.extend([
+                    "Comparison: t-test vs Permutation test",
+                    f"  Agreement (both significant): {agreement}",
+                    f"  t-test only: {ttest_only}",
+                    f"  Permutation only: {perm_only}",
+                    ""
+                ])
+
         # Attention shifts
         if attention_results is not None:
+            has_perm_attention = 'permutation_pvalue' in attention_results.columns
+
             report_lines.extend([
                 "=" * 80,
                 "ATTENTION WEIGHT SHIFTS",
@@ -571,21 +873,49 @@ class StatisticalAnalyzer:
                 ""
             ])
 
+            # Parametric test results
             if 'significant' in attention_results.columns:
                 sig_words = attention_results[attention_results['significant']]
-                report_lines.append(f"Significant words: {len(sig_words)}/{len(attention_results)}")
+                report_lines.append(f"Significant words - t-test: {len(sig_words)}/{len(attention_results)}")
                 report_lines.append("")
 
                 if len(sig_words) > 0:
-                    report_lines.append("Top 10 words with largest attention shifts:")
+                    report_lines.append("Top 10 words with largest attention shifts (t-test):")
                     for _, row in sig_words.head(10).iterrows():
                         effect_interp = self.effect_size_interpretation(row['cohens_d'])
-                        report_lines.append(
+                        line = (
                             f"  '{row['word']}': "
                             f"shift={row['mean_shift']:.6f}, "
                             f"d={row['cohens_d']:.3f} ({effect_interp}), "
-                            f"p={row['ttest_pvalue_corrected']:.4e}"
+                            f"p_ttest={row['ttest_pvalue_corrected']:.4e}"
                         )
+                        if has_perm_attention:
+                            line += f", p_perm={row.get('permutation_pvalue_corrected', 'N/A'):.4e}"
+                        report_lines.append(line)
+                    report_lines.append("")
+
+            # Permutation test results
+            if has_perm_attention and 'permutation_significant' in attention_results.columns:
+                sig_words_perm = attention_results[attention_results['permutation_significant']]
+                report_lines.append(f"Significant words - Permutation test: {len(sig_words_perm)}/{len(attention_results)}")
+                report_lines.append("")
+
+                # Comparison
+                if 'significant' in attention_results.columns:
+                    ttest_sig_words = set(attention_results[attention_results['significant']]['word'])
+                    perm_sig_words = set(attention_results[attention_results['permutation_significant']]['word'])
+
+                    agreement = len(ttest_sig_words & perm_sig_words)
+                    ttest_only = len(ttest_sig_words - perm_sig_words)
+                    perm_only = len(perm_sig_words - ttest_sig_words)
+
+                    report_lines.extend([
+                        "Comparison: t-test vs Permutation test",
+                        f"  Agreement (both significant): {agreement}",
+                        f"  t-test only: {ttest_only}",
+                        f"  Permutation only: {perm_only}",
+                        ""
+                    ])
 
         report_lines.append("")
         report_lines.append("=" * 80)
