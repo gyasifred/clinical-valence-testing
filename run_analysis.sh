@@ -79,9 +79,26 @@ echo -e "${GREEN}✓ Python environment ready${NC}"
 # Check GPU availability
 if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
     USE_GPU="true"
-    BATCH_SIZE="256"
     GPU_INFO=$(python -c "import torch; print(torch.cuda.get_device_name(0))")
+    GPU_MEMORY=$(python -c "import torch; print(torch.cuda.get_device_properties(0).total_memory / (1024**3))" 2>/dev/null)
+
     echo -e "${GREEN}✓ GPU available: $GPU_INFO${NC}"
+    echo -e "  GPU memory: ${GPU_MEMORY} GB"
+
+    # Optimize batch size based on GPU memory
+    if [[ "$GPU_INFO" == *"H100"* ]]; then
+        BATCH_SIZE="512"  # H100 has 80GB, can handle large batches
+        echo -e "${GREEN}  Using H100-optimized batch size: $BATCH_SIZE${NC}"
+    elif (( $(echo "$GPU_MEMORY > 40" | bc -l) )); then
+        BATCH_SIZE="256"  # High-end GPU (A100, etc.)
+        echo -e "${GREEN}  Using large batch size: $BATCH_SIZE${NC}"
+    elif (( $(echo "$GPU_MEMORY > 16" | bc -l) )); then
+        BATCH_SIZE="128"  # Mid-range GPU
+        echo -e "${GREEN}  Using medium batch size: $BATCH_SIZE${NC}"
+    else
+        BATCH_SIZE="64"   # Lower-end GPU
+        echo -e "${YELLOW}  Using small batch size: $BATCH_SIZE${NC}"
+    fi
 else
     USE_GPU="false"
     BATCH_SIZE="32"
