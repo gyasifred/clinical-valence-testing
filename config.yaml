@@ -12,7 +12,7 @@ model:
   attention:
     layer_num: 11
     head_num: 11
-    aggregation: "sum"  # sum, average, or max
+    aggregation: "average"  # average (mean) recommended to prevent sub-token bias; sum or max also available
 
 # Data configuration
 data:

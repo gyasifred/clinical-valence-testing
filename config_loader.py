@@ -25,7 +25,7 @@ class ModelConfig:
     attention: Dict[str, Any] = field(default_factory=lambda: {
         "layer_num": 11,
         "head_num": 11,
-        "aggregation": "sum"
+        "aggregation": "average"
     })
 
 

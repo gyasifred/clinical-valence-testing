@@ -74,7 +74,7 @@ python main.py \
   --code_label short_codes \
   --random_seed 42
 
-# Run with GPU acceleration (if available)
+# Run with H100 NVL GPU acceleration (95GB memory)
 python main.py \
   --test_set_path ./data/DIA_GROUPS_3_DIGITS_adm_test.csv \
   --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
@@ -82,7 +82,7 @@ python main.py \
   --task diagnosis \
   --save_dir ./results \
   --gpu true \
-  --batch_size 256 \
+  --batch_size 768 \
   --code_label short_codes \
   --random_seed 42
 
@@ -176,7 +176,8 @@ Based on the file sizes you showed:
 | DIA_GROUPS_3_DIGITS_adm_val.csv | 12 MB | ~1,500-2,500 |
 
 **Processing Time Estimates:**
-- With GPU (batch size 256): ~10-15 minutes for test set
+- With H100 NVL GPU (batch size 768): ~8-12 minutes for test set
+- With other GPUs (batch size 256): ~15-20 minutes for test set
 - Without GPU (batch size 32): ~30-45 minutes for test set
 
 ## Configuration for Your Data
@@ -186,8 +187,8 @@ The default `config.yaml` is already set up for your data format:
 ```yaml
 data:
   test_set_path: "./data/DIA_GROUPS_3_DIGITS_adm_test.csv"
-  text_column: "text"
-  code_column: "short_codes"
+  text_label: "text"
+  code_label: "short_codes"
 ```
 
 ## Troubleshooting
@@ -206,7 +207,7 @@ python main.py --test_set_path ./data/DIA_GROUPS_3_DIGITS_adm_test.csv --batch_s
 
 ### Issue: Very slow processing
 **Solution:**
-1. Enable GPU if available: `--gpu true --batch_size 256`
+1. Enable GPU if available: `--gpu true --batch_size 768` (for H100 NVL)
 2. Or reduce test dataset for quick testing:
 ```bash
 head -100 data/DIA_GROUPS_3_DIGITS_adm_test.csv > data/test_subset.csv
