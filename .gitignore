@@ -1,7 +1,37 @@
 # Ignore all files and subdirectories within specific folders
 result/
+results/
 __pycache__/
 checkpoints/
+
+# Ignore large data files
 *.csv
-# Ignore specific file
-DIA_GROUPS_3_DIGITS_adm_test.csv
+data/DIA_GROUPS_3_DIGITS_adm_test.csv
+data/DIA_GROUPS_3_DIGITS_adm_train.csv
+data/DIA_GROUPS_3_DIGITS_adm_val.csv
+data/ALL_3_DIGIT_DIA_CODES.txt
+
+# Keep data directory README
+!data/README.md
+
+# Ignore log files
+*.log
+clinical_valence_testing.log
+
+# Ignore Python cache
+*.pyc
+__pycache__/
+
+# Ignore Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Ignore model checkpoints
+checkpoints/
+*.pt
+*.pth
+*.bin
+
+# Ignore temporary files
+*.tmp
+*.swp
+*~
