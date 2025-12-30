@@ -237,13 +237,15 @@ pip show torch transformers numpy pandas scipy
 
 ### Configure for H100 GPU
 
-Update `config.yaml`:
+The `config.yaml` is pre-configured for H100 NVL:
 
 ```yaml
 model:
   use_gpu: true
   device: "cuda"
-  batch_size: 512  # H100 has 80GB memory, can handle large batches
+  batch_size: 768  # Optimized for H100 NVL (95GB memory)
+  attention:
+    aggregation: "average"  # Prevents sub-token bias in attention analysis
 ```
 
 ### Optimize Batch Size for H100
@@ -252,21 +254,21 @@ The H100 has different memory configurations:
 
 | H100 Model | Memory | Recommended Batch Size |
 |------------|--------|------------------------|
-| H100 SXM5  | 80GB   | 512-1024              |
-| H100 PCIe  | 80GB   | 512-1024              |
-| H100 NVL   | 94GB   | 1024-2048             |
+| H100 SXM5  | 80GB   | 512                    |
+| H100 PCIe  | 80GB   | 512                    |
+| H100 NVL   | 95GB   | 768                    |
 
-Start with conservative batch size and increase:
+The project is pre-configured for H100 NVL (batch_size=768 in config.yaml). Start with this default and adjust if needed:
 
 ```bash
-# Test with smaller batch
-python main.py --batch_size 256 --gpu true
+# Use default H100 NVL configuration
+python main.py --gpu true
 
-# If no OOM error, increase
+# Or manually specify for H100 SXM/PCIe
 python main.py --batch_size 512 --gpu true
 
-# H100 can handle large batches
-python main.py --batch_size 1024 --gpu true
+# Reduce if encountering OOM errors
+python main.py --batch_size 256 --gpu true
 ```
 
 ### Monitor GPU Usage

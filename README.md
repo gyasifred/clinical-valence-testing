@@ -119,17 +119,19 @@ Edit `config.yaml` to match your setup:
 # Model Configuration
 model:
   name: "bvanaken/CORe-clinical-outcome-biobert-v1"  # Or your model path
-  batch_size: 128
+  batch_size: 768  # Optimized for H100 NVL (95GB); reduce to 512 for H100 SXM/PCIe (80GB)
   use_gpu: true
+  device: "cuda"
   attention:
     layer_num: 11
     head_num: 11
+    aggregation: "average"  # Prevents sub-token bias in attention analysis
 
 # Data Configuration
 data:
   test_set_path: "./data/test_set.csv"
-  text_column: "text"
-  code_column: "short_codes"
+  text_label: "text"
+  code_label: "short_codes"
 
 # Output Configuration
 output:
@@ -204,13 +206,22 @@ python main.py \
 
 ### Step 5: Adjust Performance Parameters
 
-**For GPU acceleration:**
+**For H100 NVL GPU (95GB memory):**
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
   --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
   --gpu true \
-  --batch_size 256
+  --batch_size 768
+```
+
+**For H100 SXM/PCIe GPU (80GB memory):**
+```bash
+python main.py \
+  --test_set_path ./data/test_set.csv \
+  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --gpu true \
+  --batch_size 512
 ```
 
 **For CPU-only systems (slower):**
@@ -237,6 +248,10 @@ python main.py \
 **Understanding attention parameters:**
 - `layer_num`: Which transformer layer to analyze (0-11 for BioBERT)
 - `head_num`: Which attention head to analyze (0-11 for BioBERT)
+- `aggregation`: How to combine sub-token attention weights (default: "average")
+  - **"average"** (recommended): Normalizes by number of sub-tokens, prevents bias toward longer words
+  - **"sum"**: Adds all sub-token weights (can bias toward longer words)
+  - **"max"**: Takes maximum sub-token weight
 - Higher layers (9-11) typically capture more semantic information
 - Different heads may focus on different linguistic patterns
 
@@ -348,7 +363,7 @@ Parameters can be set in three ways (in order of precedence):
 | `task` | str | "diagnosis" | Prediction task type |
 | `save_dir` | str | "./results" | Output directory |
 | `gpu` | bool | false | Use GPU for inference |
-| `batch_size` | int | 128 | Batch size for predictions |
+| `batch_size` | int | 768 | Batch size for predictions (768 for H100 NVL, 512 for H100 SXM/PCIe) |
 | `head_num` | int | 11 | Attention head to analyze |
 | `layer_num` | int | 11 | Model layer to analyze |
 | `code_label` | str | "short_codes" | Column name for diagnosis codes |
