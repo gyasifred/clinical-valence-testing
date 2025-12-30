@@ -4,8 +4,9 @@
 model:
   name: "bvanaken/CORe-clinical-outcome-biobert-v1"
   max_length: 512
-  batch_size: 128
-  device: "auto"  # auto, cuda, or cpu
+  batch_size: 512  # Optimized for H100 (80GB memory). Reduce if OOM errors occur
+  use_gpu: true  # Set to false if no GPU available
+  device: "cuda"  # auto, cuda, or cpu (use "cuda" for H100 GPU)
 
   # Attention extraction parameters
   attention:
@@ -15,6 +16,7 @@ model:
 
 # Data configuration
 data:
+  test_set_path: "./data/DIA_GROUPS_3_DIGITS_adm_test.csv"
   code_label: "short_codes"
   text_label: "text"
   min_code_frequency: 100  # Minimum occurrences for code inclusion
@@ -99,10 +101,13 @@ logging:
 
 # Output configuration
 output:
+  results_dir: "./results"
   save_dir: "./results"
   create_timestamp_dirs: true
   save_format: "csv"  # csv or parquet
   compression: null  # null, gzip, bz2, or xz
+  save_attention: true
+  save_predictions: true
 
 # Reproducibility
 random_seed: 42

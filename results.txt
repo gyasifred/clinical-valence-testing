@@ -1,0 +1,388 @@
+================================================================================
+CLINICAL VALENCE TESTING - RESULTS TEMPLATE
+================================================================================
+
+Project: Clinical Valence Testing with Attention Analysis
+Date: xx/xx/xxxx
+Model: xx
+Test Dataset: xx
+Total Samples: xx
+
+================================================================================
+1. CONFIGURATION SUMMARY
+================================================================================
+
+Model Configuration:
+  - Model Name: xx
+  - Batch Size: xx
+  - GPU Enabled: xx
+  - Attention Layer: xx
+  - Attention Head: xx
+
+Data Configuration:
+  - Test Set Path: xx
+  - Text Column: xx
+  - Code Column: xx
+  - Number of Samples: xx
+
+Reproducibility:
+  - Random Seed: xx
+  - Deterministic Mode: xx
+
+================================================================================
+2. SHIFT TESTING RESULTS
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 NEUTRALIZE SHIFT
+--------------------------------------------------------------------------------
+Description: Removes all valence terms to create baseline
+
+Results:
+  - Total samples processed: xx
+  - Samples with shift applied: xx
+  - Samples skipped: xx
+  - Average prediction change: xx
+  - Max prediction change: xx
+  - Min prediction change: xx
+  - Standard deviation: xx
+
+Output Files:
+  - Predictions: xx/neutralize_shift_diagnosis.csv
+  - Statistics: xx/neutralize_shift_diagnosis_stats.txt
+
+--------------------------------------------------------------------------------
+2.2 PEJORATIVE SHIFT
+--------------------------------------------------------------------------------
+Description: Tests impact of negative patient descriptors
+
+Results:
+  - Total samples processed: xx
+  - Samples with shift applied: xx
+  - Samples skipped: xx
+  - Average prediction change: xx
+  - Max prediction change: xx
+  - Min prediction change: xx
+  - Standard deviation: xx
+
+Output Files:
+  - Predictions: xx/pejorative_shift_diagnosis.csv
+  - Statistics: xx/pejorative_shift_diagnosis_stats.txt
+
+--------------------------------------------------------------------------------
+2.3 LAUDATORY SHIFT
+--------------------------------------------------------------------------------
+Description: Tests impact of positive patient descriptors
+
+Results:
+  - Total samples processed: xx
+  - Samples with shift applied: xx
+  - Samples skipped: xx
+  - Average prediction change: xx
+  - Max prediction change: xx
+  - Min prediction change: xx
+  - Standard deviation: xx
+
+Output Files:
+  - Predictions: xx/laud_shift_diagnosis.csv
+  - Statistics: xx/laud_shift_diagnosis_stats.txt
+
+--------------------------------------------------------------------------------
+2.4 NEUTRAL VALENCE SHIFT
+--------------------------------------------------------------------------------
+Description: Tests objective descriptors
+
+Results:
+  - Total samples processed: xx
+  - Samples with shift applied: xx
+  - Samples skipped: xx
+  - Average prediction change: xx
+  - Max prediction change: xx
+  - Min prediction change: xx
+  - Standard deviation: xx
+
+Output Files:
+  - Predictions: xx/neutralval_shift_diagnosis.csv
+  - Statistics: xx/neutralval_shift_diagnosis_stats.txt
+
+================================================================================
+3. STATISTICAL ANALYSIS
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 PAIRED T-TESTS
+--------------------------------------------------------------------------------
+
+Pejorative vs Neutralize (Baseline):
+  - t-statistic: xx
+  - p-value: xx
+  - Significance: xx (*** p<0.001, ** p<0.01, * p<0.05, ns p>=0.05)
+  - 95% Confidence Interval: [xx, xx]
+
+Laudatory vs Neutralize (Baseline):
+  - t-statistic: xx
+  - p-value: xx
+  - Significance: xx
+  - 95% Confidence Interval: [xx, xx]
+
+Neutral Valence vs Neutralize (Baseline):
+  - t-statistic: xx
+  - p-value: xx
+  - Significance: xx
+  - 95% Confidence Interval: [xx, xx]
+
+Pejorative vs Laudatory:
+  - t-statistic: xx
+  - p-value: xx
+  - Significance: xx
+  - 95% Confidence Interval: [xx, xx]
+
+--------------------------------------------------------------------------------
+3.2 WILCOXON SIGNED-RANK TESTS (Non-parametric)
+--------------------------------------------------------------------------------
+
+Pejorative vs Neutralize:
+  - Wilcoxon statistic: xx
+  - p-value: xx
+  - Significance: xx
+
+Laudatory vs Neutralize:
+  - Wilcoxon statistic: xx
+  - p-value: xx
+  - Significance: xx
+
+Neutral Valence vs Neutralize:
+  - Wilcoxon statistic: xx
+  - p-value: xx
+  - Significance: xx
+
+--------------------------------------------------------------------------------
+3.3 EFFECT SIZES
+--------------------------------------------------------------------------------
+
+Cohen's d (standardized mean difference):
+  - Pejorative vs Neutralize: xx (interpretation: xx)
+  - Laudatory vs Neutralize: xx (interpretation: xx)
+  - Neutral Valence vs Neutralize: xx (interpretation: xx)
+
+Hedges' g (bias-corrected effect size):
+  - Pejorative vs Neutralize: xx
+  - Laudatory vs Neutralize: xx
+  - Neutral Valence vs Neutralize: xx
+
+Effect Size Interpretation:
+  - Small effect: |d| = 0.2
+  - Medium effect: |d| = 0.5
+  - Large effect: |d| = 0.8
+
+--------------------------------------------------------------------------------
+3.4 MULTIPLE COMPARISON CORRECTION
+--------------------------------------------------------------------------------
+
+FDR (False Discovery Rate) Corrected p-values:
+  - Pejorative vs Neutralize: xx
+  - Laudatory vs Neutralize: xx
+  - Neutral Valence vs Neutralize: xx
+
+Bonferroni Corrected p-values:
+  - Pejorative vs Neutralize: xx
+  - Laudatory vs Neutralize: xx
+  - Neutral Valence vs Neutralize: xx
+
+Adjusted Significance Level (Bonferroni): xx
+
+--------------------------------------------------------------------------------
+3.5 BOOTSTRAP CONFIDENCE INTERVALS
+--------------------------------------------------------------------------------
+
+Bootstrap Parameters:
+  - Number of iterations: xx
+  - Confidence level: xx%
+  - Random seed: xx
+
+Pejorative Shift:
+  - Mean estimate: xx
+  - 95% Bootstrap CI: [xx, xx]
+
+Laudatory Shift:
+  - Mean estimate: xx
+  - 95% Bootstrap CI: [xx, xx]
+
+Neutral Valence Shift:
+  - Mean estimate: xx
+  - 95% Bootstrap CI: [xx, xx]
+
+================================================================================
+4. ATTENTION ANALYSIS
+================================================================================
+
+Attention Weight Statistics:
+
+Pejorative Shift:
+  - Mean attention weight: xx
+  - Median attention weight: xx
+  - Attention weight change: xx
+
+Laudatory Shift:
+  - Mean attention weight: xx
+  - Median attention weight: xx
+  - Attention weight change: xx
+
+Neutral Valence Shift:
+  - Mean attention weight: xx
+  - Median attention weight: xx
+  - Attention weight change: xx
+
+================================================================================
+5. DIAGNOSIS-SPECIFIC RESULTS
+================================================================================
+
+Top Affected Diagnosis Codes:
+
+Rank 1:
+  - Diagnosis Code: xx
+  - Code Description: xx
+  - Mean probability shift: xx
+  - Effect size: xx
+  - p-value: xx
+
+Rank 2:
+  - Diagnosis Code: xx
+  - Code Description: xx
+  - Mean probability shift: xx
+  - Effect size: xx
+  - p-value: xx
+
+Rank 3:
+  - Diagnosis Code: xx
+  - Code Description: xx
+  - Mean probability shift: xx
+  - Effect size: xx
+  - p-value: xx
+
+(Additional diagnoses: see full report)
+
+================================================================================
+6. QUALITY CHECKS
+================================================================================
+
+Data Quality:
+  - Missing values: xx
+  - Invalid codes: xx
+  - Empty texts: xx
+  - Duplicate samples: xx
+
+Model Performance:
+  - Average inference time per sample: xx ms
+  - Total processing time: xx minutes
+  - Memory usage (peak): xx GB
+
+Shift Application:
+  - Neutralize success rate: xx%
+  - Pejorative success rate: xx%
+  - Laudatory success rate: xx%
+  - Neutral valence success rate: xx%
+
+================================================================================
+7. SUMMARY AND INTERPRETATION
+================================================================================
+
+Key Findings:
+
+1. Overall Impact:
+   - Pejorative language: xx (increases/decreases/no significant change)
+   - Laudatory language: xx (increases/decreases/no significant change)
+   - Neutral language: xx (increases/decreases/no significant change)
+
+2. Statistical Significance:
+   - Number of significant shifts (p < 0.05): xx
+   - Number of large effects (|d| > 0.8): xx
+   - Number of medium effects (0.5 < |d| < 0.8): xx
+
+3. Most Affected Diagnoses:
+   - Top diagnosis code: xx
+   - Shift magnitude: xx
+   - Clinical interpretation: xx
+
+4. Attention Pattern Changes:
+   - Mean attention shift: xx
+   - Interpretation: xx
+
+================================================================================
+8. RECOMMENDATIONS
+================================================================================
+
+Based on Results:
+  - xx
+  - xx
+  - xx
+
+Further Analysis:
+  - xx
+  - xx
+  - xx
+
+================================================================================
+9. OUTPUT FILES GENERATED
+================================================================================
+
+CSV Result Files:
+  [xx] xx/neutralize_shift_diagnosis.csv
+  [xx] xx/pejorative_shift_diagnosis.csv
+  [xx] xx/laud_shift_diagnosis.csv
+  [xx] xx/neutralval_shift_diagnosis.csv
+
+Statistics Files:
+  [xx] xx/neutralize_shift_diagnosis_stats.txt
+  [xx] xx/pejorative_shift_diagnosis_stats.txt
+  [xx] xx/laud_shift_diagnosis_stats.txt
+  [xx] xx/neutralval_shift_diagnosis_stats.txt
+
+Analysis Reports:
+  [xx] xx/statistical_analysis.txt
+  [xx] xx/comprehensive_report.txt
+
+Visualizations (if generated):
+  [xx] xx/valence_shifts.png
+  [xx] xx/attention_shifts.png
+  [xx] xx/diagnosis_heatmap.png
+  [xx] xx/dashboard.html
+
+================================================================================
+10. REPRODUCIBILITY INFORMATION
+================================================================================
+
+Environment:
+  - Python version: xx
+  - PyTorch version: xx
+  - Transformers version: xx
+  - CUDA version: xx
+  - Operating system: xx
+
+Git Information:
+  - Repository: xx
+  - Branch: xx
+  - Commit hash: xx
+
+Execution Command:
+  python main.py \
+    --test_set_path xx \
+    --model_path xx \
+    --shift_keys xx \
+    --task xx \
+    --save_dir xx \
+    --random_seed xx
+
+Configuration File:
+  - Config path: xx
+  - Config hash: xx
+
+================================================================================
+END OF RESULTS TEMPLATE
+================================================================================
+
+Notes:
+- Replace all "xx" placeholders with actual values when results are available
+- Ensure all file paths are updated with the actual save directory
+- Update date and timestamp fields
+- Add any additional custom analysis results in the appropriate sections
