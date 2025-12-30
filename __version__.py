@@ -5,7 +5,7 @@ __version_info__ = (1, 0, 0)
 
 # Release information
 RELEASE_NAME = "Production Release"
-RELEASE_DATE = "2024-12-30"
+RELEASE_DATE = "2025-01-01"
 RELEASE_STATUS = "stable"
 
 # Compatibility

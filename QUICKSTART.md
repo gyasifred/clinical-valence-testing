@@ -51,13 +51,13 @@ bash run_analysis.sh
 ```
 
 This script will:
-1. ✓ Check that your data files exist
-2. ✓ Validate the dataset format
-3. ✓ Check Python environment
-4. ✓ Detect GPU availability
-5. ✓ Run all four shifts (neutralize, pejorative, laudatory, neutral valence)
-6. ✓ Generate statistical analysis
-7. ✓ Save results to `./results/run_YYYYMMDD_HHMMSS/`
+1. Check that your data files exist
+2. Validate the dataset format
+3. Check Python environment
+4. Detect GPU availability
+5. Run all four shifts (neutralize, pejorative, laudatory, neutral valence)
+6. Generate statistical analysis
+7. Save results to `./results/run_YYYYMMDD_HHMMSS/`
 
 ### Step 4: Run the Analysis (Manual)
 
