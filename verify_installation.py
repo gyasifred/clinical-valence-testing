@@ -16,16 +16,16 @@ def print_header(text):
     print("=" * 80 + "\n")
 
 def print_success(text):
-    """Print success message in green"""
-    print(f"✓ {text}")
+    """Print success message"""
+    print(f"[PASS] {text}")
 
 def print_error(text):
-    """Print error message in red"""
-    print(f"✗ {text}")
+    """Print error message"""
+    print(f"[FAIL] {text}")
 
 def print_warning(text):
-    """Print warning message in yellow"""
-    print(f"⚠ {text}")
+    """Print warning message"""
+    print(f"[WARNING] {text}")
 
 def check_python_version():
     """Check Python version"""
@@ -308,7 +308,7 @@ def main():
     total = len(results)
 
     for test_name, result in results:
-        status = "✓ PASS" if result else "✗ FAIL"
+        status = "[PASS]" if result else "[FAIL]"
         print(f"{test_name:.<40} {status}")
 
     print(f"\nPassed: {passed}/{total}")

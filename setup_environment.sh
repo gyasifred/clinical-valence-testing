@@ -49,7 +49,7 @@ PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | awk '{print $2}')
 echo -e "Found Python: $PYTHON_VERSION"
 
 if version_ge "$PYTHON_VERSION" "$PYTHON_MIN_VERSION"; then
-    echo -e "${GREEN}✓ Python version OK${NC}"
+    echo -e "${GREEN}[OK] Python version OK${NC}"
 else
     echo -e "${RED}Error: Python $PYTHON_MIN_VERSION or higher required, found $PYTHON_VERSION${NC}"
     exit 1
@@ -63,14 +63,14 @@ if command -v nvidia-smi &> /dev/null; then
     DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null || echo "Unknown")
     CUDA_VERSION_DETECTED=$(nvidia-smi | grep "CUDA Version" | awk '{print $9}' || echo "Unknown")
 
-    echo -e "${GREEN}✓ NVIDIA GPU detected${NC}"
+    echo -e "${GREEN}[OK] NVIDIA GPU detected${NC}"
     echo -e "  GPU: $GPU_INFO"
     echo -e "  Driver: $DRIVER_VERSION"
     echo -e "  CUDA: $CUDA_VERSION_DETECTED"
 
     HAS_GPU=true
 else
-    echo -e "${YELLOW}⚠ No NVIDIA GPU detected or nvidia-smi not found${NC}"
+    echo -e "${YELLOW}[WARNING] No NVIDIA GPU detected or nvidia-smi not found${NC}"
     echo -e "${YELLOW}  Installation will continue with CPU-only support${NC}"
     HAS_GPU=false
 fi
@@ -79,13 +79,13 @@ fi
 echo ""
 echo -e "${YELLOW}[3/9] Checking for existing virtual environment...${NC}"
 if [ -d "$VENV_NAME" ]; then
-    echo -e "${YELLOW}⚠ Virtual environment '$VENV_NAME' already exists${NC}"
+    echo -e "${YELLOW}[WARNING] Virtual environment '$VENV_NAME' already exists${NC}"
     read -p "Do you want to remove it and create a fresh one? (y/n): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}Removing existing virtual environment...${NC}"
         rm -rf "$VENV_NAME"
-        echo -e "${GREEN}✓ Removed${NC}"
+        echo -e "${GREEN}[OK] Removed${NC}"
     else
         echo -e "${YELLOW}Using existing virtual environment${NC}"
     fi
@@ -96,7 +96,7 @@ if [ ! -d "$VENV_NAME" ]; then
     echo ""
     echo -e "${YELLOW}[4/9] Creating virtual environment...${NC}"
     $PYTHON_CMD -m venv $VENV_NAME
-    echo -e "${GREEN}✓ Virtual environment created: $VENV_NAME${NC}"
+    echo -e "${GREEN}[OK] Virtual environment created: $VENV_NAME${NC}"
 else
     echo ""
     echo -e "${YELLOW}[4/9] Virtual environment already exists${NC}"
@@ -106,14 +106,14 @@ fi
 echo ""
 echo -e "${YELLOW}[5/9] Activating virtual environment...${NC}"
 source $VENV_NAME/bin/activate
-echo -e "${GREEN}✓ Virtual environment activated${NC}"
+echo -e "${GREEN}[OK] Virtual environment activated${NC}"
 
 # Step 6: Upgrade pip, setuptools, and wheel
 echo ""
 echo -e "${YELLOW}[6/9] Upgrading pip, setuptools, and wheel...${NC}"
 pip install --upgrade pip setuptools wheel --quiet
 PIP_VERSION=$(pip --version | awk '{print $2}')
-echo -e "${GREEN}✓ pip $PIP_VERSION${NC}"
+echo -e "${GREEN}[OK] pip $PIP_VERSION${NC}"
 
 # Step 7: Install PyTorch with CUDA support
 echo ""
@@ -126,14 +126,14 @@ else
     echo -e "${CYAN}Installing PyTorch (CPU-only version)...${NC}"
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 fi
-echo -e "${GREEN}✓ PyTorch installed${NC}"
+echo -e "${GREEN}[OK] PyTorch installed${NC}"
 
 # Step 8: Install project dependencies
 echo ""
 echo -e "${YELLOW}[8/9] Installing project dependencies...${NC}"
 echo -e "${CYAN}This may take several minutes...${NC}"
 pip install -r requirements.txt --quiet
-echo -e "${GREEN}✓ All dependencies installed${NC}"
+echo -e "${GREEN}[OK] All dependencies installed${NC}"
 
 # Step 9: Verify installation
 echo ""
@@ -145,9 +145,9 @@ echo -e "${CYAN}Testing package imports...${NC}"
 # Test PyTorch
 if python -c "import torch; print(f'PyTorch {torch.__version__}')" 2>/dev/null; then
     TORCH_VERSION=$(python -c "import torch; print(torch.__version__)")
-    echo -e "${GREEN}  ✓ PyTorch $TORCH_VERSION${NC}"
+    echo -e "${GREEN}  [PASS] PyTorch $TORCH_VERSION${NC}"
 else
-    echo -e "${RED}  ✗ PyTorch import failed${NC}"
+    echo -e "${RED}  [FAIL] PyTorch import failed${NC}"
     exit 1
 fi
 
@@ -157,58 +157,58 @@ if [ "$HAS_GPU" = true ]; then
     if [ "$CUDA_AVAILABLE" = "True" ]; then
         GPU_COUNT=$(python -c "import torch; print(torch.cuda.device_count())")
         GPU_NAME=$(python -c "import torch; print(torch.cuda.get_device_name(0))")
-        echo -e "${GREEN}  ✓ CUDA available: $GPU_COUNT GPU(s)${NC}"
+        echo -e "${GREEN}  [PASS] CUDA available: $GPU_COUNT GPU(s)${NC}"
         echo -e "${GREEN}    GPU: $GPU_NAME${NC}"
     else
-        echo -e "${YELLOW}  ⚠ CUDA not available (PyTorch installed but can't access GPU)${NC}"
+        echo -e "${YELLOW}  [WARNING] CUDA not available (PyTorch installed but can't access GPU)${NC}"
     fi
 fi
 
 # Test Transformers
 if python -c "import transformers; print(f'Transformers {transformers.__version__}')" 2>/dev/null; then
     TRANSFORMERS_VERSION=$(python -c "import transformers; print(transformers.__version__)")
-    echo -e "${GREEN}  ✓ Transformers $TRANSFORMERS_VERSION${NC}"
+    echo -e "${GREEN}  [PASS] Transformers $TRANSFORMERS_VERSION${NC}"
 else
-    echo -e "${RED}  ✗ Transformers import failed${NC}"
+    echo -e "${RED}  [FAIL] Transformers import failed${NC}"
     exit 1
 fi
 
 # Test data science packages
 if python -c "import numpy, pandas, scipy; print('OK')" 2>/dev/null; then
-    echo -e "${GREEN}  ✓ NumPy, Pandas, SciPy${NC}"
+    echo -e "${GREEN}  [PASS] NumPy, Pandas, SciPy${NC}"
 else
-    echo -e "${RED}  ✗ Data science packages import failed${NC}"
+    echo -e "${RED}  [FAIL] Data science packages import failed${NC}"
     exit 1
 fi
 
 # Test statistical packages
 if python -c "import statsmodels, sklearn; print('OK')" 2>/dev/null; then
-    echo -e "${GREEN}  ✓ Statsmodels, Scikit-learn${NC}"
+    echo -e "${GREEN}  [PASS] Statsmodels, Scikit-learn${NC}"
 else
-    echo -e "${RED}  ✗ Statistical packages import failed${NC}"
+    echo -e "${RED}  [FAIL] Statistical packages import failed${NC}"
     exit 1
 fi
 
 # Test visualization packages
 if python -c "import matplotlib, seaborn, plotly; print('OK')" 2>/dev/null; then
-    echo -e "${GREEN}  ✓ Matplotlib, Seaborn, Plotly${NC}"
+    echo -e "${GREEN}  [PASS] Matplotlib, Seaborn, Plotly${NC}"
 else
-    echo -e "${RED}  ✗ Visualization packages import failed${NC}"
+    echo -e "${RED}  [FAIL] Visualization packages import failed${NC}"
     exit 1
 fi
 
 # Test project modules
 if python -c "from config_loader import get_config; from logger import setup_logging; from statistical_analysis import StatisticalAnalyzer; print('OK')" 2>/dev/null; then
-    echo -e "${GREEN}  ✓ Project modules${NC}"
+    echo -e "${GREEN}  [PASS] Project modules${NC}"
 else
-    echo -e "${RED}  ✗ Project modules import failed${NC}"
+    echo -e "${RED}  [FAIL] Project modules import failed${NC}"
     exit 1
 fi
 
 # Summary
 echo ""
 echo -e "${BLUE}================================================================================================${NC}"
-echo -e "${GREEN}✓ Environment Setup Complete!${NC}"
+echo -e "${GREEN}[SUCCESS] Environment Setup Complete${NC}"
 echo -e "${BLUE}================================================================================================${NC}"
 echo ""
 echo -e "${CYAN}Environment Details:${NC}"
@@ -236,9 +236,7 @@ echo -e "  4. Or run manually:"
 echo -e "     ${YELLOW}python main.py --test_set_path ./data/DIA_GROUPS_3_DIGITS_adm_test.csv --gpu true${NC}"
 echo ""
 echo -e "${CYAN}Documentation:${NC}"
-echo -e "  • Quick Start: ${YELLOW}QUICKSTART.md${NC}"
-echo -e "  • Environment: ${YELLOW}ENVIRONMENT_SETUP.md${NC}"
-echo -e "  • Full Guide:  ${YELLOW}README.md${NC}"
-echo ""
-echo -e "${GREEN}Happy analyzing! 🚀${NC}"
+echo -e "  - Quick Start: ${YELLOW}QUICKSTART.md${NC}"
+echo -e "  - Environment: ${YELLOW}ENVIRONMENT_SETUP.md${NC}"
+echo -e "  - Full Guide:  ${YELLOW}README.md${NC}"
 echo ""

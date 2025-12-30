@@ -43,15 +43,15 @@ if [ ! -f "$TEST_DATA" ]; then
     echo -e "  cp /path/to/DIA_GROUPS_3_DIGITS_adm_test.csv ./data/"
     exit 1
 fi
-echo -e "${GREEN}✓ Test dataset found: $TEST_DATA${NC}"
+echo -e "${GREEN}[OK] Test dataset found: $TEST_DATA${NC}"
 
 # Check if diagnosis codes file exists (optional)
 if [ -f "$DIAGNOSIS_CODES" ]; then
-    echo -e "${GREEN}✓ Diagnosis codes file found: $DIAGNOSIS_CODES${NC}"
+    echo -e "${GREEN}[OK] Diagnosis codes file found: $DIAGNOSIS_CODES${NC}"
     NUM_CODES=$(wc -l < "$DIAGNOSIS_CODES" 2>/dev/null || echo "unknown")
     echo -e "  Number of diagnosis codes: $NUM_CODES"
 else
-    echo -e "${YELLOW}⚠ Diagnosis codes file not found (optional): $DIAGNOSIS_CODES${NC}"
+    echo -e "${YELLOW}[WARNING] Diagnosis codes file not found (optional): $DIAGNOSIS_CODES${NC}"
 fi
 
 # Check dataset format
@@ -63,7 +63,7 @@ echo "$HEAD_OUTPUT"
 
 # Count samples
 NUM_SAMPLES=$(tail -n +2 "$TEST_DATA" | wc -l)
-echo -e "${GREEN}✓ Number of test samples: $NUM_SAMPLES${NC}"
+echo -e "${GREEN}[OK] Number of test samples: $NUM_SAMPLES${NC}"
 
 # Check Python environment
 echo ""
@@ -74,7 +74,7 @@ if ! python -c "import torch, transformers, pandas, numpy" 2>/dev/null; then
     echo -e "  pip install -r requirements.txt"
     exit 1
 fi
-echo -e "${GREEN}✓ Python environment ready${NC}"
+echo -e "${GREEN}[OK] Python environment ready${NC}"
 
 # Check GPU availability
 if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
@@ -82,7 +82,7 @@ if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/
     GPU_INFO=$(python -c "import torch; print(torch.cuda.get_device_name(0))")
     GPU_MEMORY=$(python -c "import torch; print(torch.cuda.get_device_properties(0).total_memory / (1024**3))" 2>/dev/null)
 
-    echo -e "${GREEN}✓ GPU available: $GPU_INFO${NC}"
+    echo -e "${GREEN}[OK] GPU available: $GPU_INFO${NC}"
     echo -e "  GPU memory: ${GPU_MEMORY} GB"
 
     # Optimize batch size based on GPU memory
@@ -102,14 +102,14 @@ if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/
 else
     USE_GPU="false"
     BATCH_SIZE="32"
-    echo -e "${YELLOW}⚠ No GPU available, using CPU (slower)${NC}"
+    echo -e "${YELLOW}[WARNING] No GPU available, using CPU (slower)${NC}"
 fi
 
 # Create results directory
 echo ""
 echo -e "${YELLOW}[4/6] Preparing output directory...${NC}"
 mkdir -p "$RESULTS_SUBDIR"
-echo -e "${GREEN}✓ Results will be saved to: $RESULTS_SUBDIR${NC}"
+echo -e "${GREEN}[OK] Results will be saved to: $RESULTS_SUBDIR${NC}"
 
 # Display configuration
 echo ""
@@ -159,8 +159,8 @@ MINUTES=$((ELAPSED / 60))
 SECONDS=$((ELAPSED % 60))
 
 echo ""
-echo -e "${GREEN}✓ Analysis completed successfully!${NC}"
-echo -e "${GREEN}✓ Total time: ${MINUTES}m ${SECONDS}s${NC}"
+echo -e "${GREEN}[SUCCESS] Analysis completed successfully${NC}"
+echo -e "${GREEN}[INFO] Total time: ${MINUTES}m ${SECONDS}s${NC}"
 
 # Display results summary
 echo ""
@@ -174,23 +174,23 @@ if [ -d "$RESULTS_SUBDIR" ]; then
 
     echo ""
     echo -e "${BLUE}Key Output Files:${NC}"
-    echo -e "  • ${GREEN}neutralize_shift_diagnosis.csv${NC} - Baseline (valence removed)"
-    echo -e "  • ${GREEN}pejorative_shift_diagnosis.csv${NC} - Negative descriptors"
-    echo -e "  • ${GREEN}laud_shift_diagnosis.csv${NC} - Positive descriptors"
-    echo -e "  • ${GREEN}neutralval_shift_diagnosis.csv${NC} - Neutral descriptors"
-    echo -e "  • ${GREEN}statistical_analysis.txt${NC} - Comprehensive statistical report"
+    echo -e "  - ${GREEN}neutralize_shift_diagnosis.csv${NC} - Baseline (valence removed)"
+    echo -e "  - ${GREEN}pejorative_shift_diagnosis.csv${NC} - Negative descriptors"
+    echo -e "  - ${GREEN}laud_shift_diagnosis.csv${NC} - Positive descriptors"
+    echo -e "  - ${GREEN}neutralval_shift_diagnosis.csv${NC} - Neutral descriptors"
+    echo -e "  - ${GREEN}statistical_analysis.txt${NC} - Comprehensive statistical report"
 
     # Count results
     if [ -f "$RESULTS_SUBDIR/neutralize_shift_diagnosis.csv" ]; then
         RESULT_SAMPLES=$(tail -n +2 "$RESULTS_SUBDIR/neutralize_shift_diagnosis.csv" | wc -l)
         echo ""
-        echo -e "${GREEN}✓ Processed $RESULT_SAMPLES samples${NC}"
+        echo -e "${GREEN}[INFO] Processed $RESULT_SAMPLES samples${NC}"
     fi
 fi
 
 echo -e "${BLUE}================================================================================================${NC}"
 echo ""
-echo -e "${GREEN}🎉 All done! Check the results in: $RESULTS_SUBDIR${NC}"
+echo -e "${GREEN}[COMPLETE] Results saved to: $RESULTS_SUBDIR${NC}"
 echo ""
 echo -e "${BLUE}Next Steps:${NC}"
 echo -e "  1. Review the statistical analysis: cat $RESULTS_SUBDIR/statistical_analysis.txt"
