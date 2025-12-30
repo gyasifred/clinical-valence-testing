@@ -6,7 +6,7 @@
 
 A comprehensive framework for testing how valence-laden language (pejorative, laudatory, neutral) affects clinical NLP model predictions. This project extends the work of [Clinical Behavioral Testing](https://github.com/bvanaken/clinical-behavioral-testing) by van Aken et al. with attention analysis and statistical rigor for publication-ready research.
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#features)
 - [Installation](#installation)
@@ -18,16 +18,16 @@ A comprehensive framework for testing how valence-laden language (pejorative, la
 - [Advanced Usage](#advanced-usage)
 - [Citation](#citation)
 
-## ✨ Features
+## Features
 
 ### Core Capabilities
-- **🔬 Behavioral Testing**: Systematic testing of clinical NLP models with linguistic perturbations
-- **🧠 Attention Analysis**: Extract and analyze transformer attention patterns
-- **📊 Statistical Analysis**: Comprehensive hypothesis testing, effect sizes, and multiple comparison corrections
-- **🎨 Interactive Visualization**: Plotly-based dashboards for exploring results
-- **⚙️ Configuration Management**: YAML-based config with command-line override
-- **📝 Comprehensive Logging**: Colored console output and file logging with progress tracking
-- **🔁 Reproducibility**: Random seed control and deterministic mode for exact replication
+- **Behavioral Testing**: Systematic testing of clinical NLP models with linguistic perturbations
+- **Attention Analysis**: Extract and analyze transformer attention patterns
+- **Statistical Analysis**: Comprehensive hypothesis testing, effect sizes, and multiple comparison corrections
+- **Interactive Visualization**: Plotly-based dashboards for exploring results
+- **Configuration Management**: YAML-based config with command-line override
+- **Comprehensive Logging**: Colored console output and file logging with progress tracking
+- **Reproducibility**: Random seed control and deterministic mode for exact replication
 
 ### Shift Types
 1. **Pejorative Shift**: Tests impact of negative patient descriptors (e.g., "difficult", "non-compliant")
@@ -42,7 +42,7 @@ A comprehensive framework for testing how valence-laden language (pejorative, la
 - Bootstrap confidence intervals
 - Comprehensive analysis reports
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 - Python 3.8 or higher
@@ -73,10 +73,10 @@ pip install -r requirements.txt
 
 ### Step 4: Verify Installation
 ```bash
-python -c "import torch; import transformers; print('✓ Installation successful!')"
+python -c "import torch; import transformers; print('[OK] Installation successful')"
 ```
 
-## ⚡ Quick Start
+## Quick Start
 
 ### Minimal Example
 
@@ -94,7 +94,7 @@ This will:
 3. Save results to `./results/` directory
 4. Generate statistical analysis and visualizations
 
-## 📖 Step-by-Step Usage Guide
+## Step-by-Step Usage Guide
 
 ### Step 1: Prepare Your Data
 
@@ -153,18 +153,18 @@ python main.py \
 ```
 
 **What happens:**
-1. ✅ Configuration loaded from `config.yaml`
-2. ✅ Random seed set to 42 (reproducible results)
-3. ✅ All four shifts initialized (neutralize, pejorative, laud, neutralval)
-4. ✅ Model loaded: `bvanaken/CORe-clinical-outcome-biobert-v1`
-5. ✅ Behavioral testing runs for each shift:
+1. Configuration loaded from `config.yaml`
+2. Random seed set to 42 (reproducible results)
+3. All four shifts initialized (neutralize, pejorative, laud, neutralval)
+4. Model loaded: `bvanaken/CORe-clinical-outcome-biobert-v1`
+5. Behavioral testing runs for each shift:
    - Original samples loaded
    - Text perturbations applied
    - Model predictions generated
    - Attention weights extracted
    - Results compared across shifts
-6. ✅ Statistical analysis performed
-7. ✅ Results saved to `./results/`
+6. Statistical analysis performed
+7. Results saved to `./results/`
 
 **Expected output files:**
 ```
@@ -267,10 +267,10 @@ webbrowser.open('./results/dashboard.html')
 ```
 
 **Dashboard includes:**
-- 📊 Box plots comparing diagnosis probabilities across valence types
-- 🎻 Violin plots showing attention weight distributions
-- 🔥 Heatmaps of diagnosis probability shifts
-- 📈 3D surface plots of prediction changes
+- Box plots comparing diagnosis probabilities across valence types
+- Violin plots showing attention weight distributions
+- Heatmaps of diagnosis probability shifts
+- 3D surface plots of prediction changes
 
 ### Step 8: Run Statistical Analysis
 
@@ -303,10 +303,10 @@ python main.py \
 ```
 
 **Reproducibility guarantees:**
-- ✅ Same sample selection
-- ✅ Same word insertions/removals
-- ✅ Same model predictions (with deterministic mode)
-- ✅ Same statistical results
+- Same sample selection
+- Same word insertions/removals
+- Same model predictions (with deterministic mode)
+- Same statistical results
 
 ### Step 10: Use Custom Configuration Files
 
@@ -366,7 +366,7 @@ Parameters can be set in three ways (in order of precedence):
 | `laud` | Tests positive descriptors | Understand favorable bias |
 | `neutralval` | Tests neutral descriptors | Understand impact of objective language |
 
-## 📊 Understanding the Output
+## Understanding the Output
 
 ### 1. CSV Result Files
 
@@ -429,7 +429,7 @@ FDR-corrected p-values:
   Laudatory: 0.023 *
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 clinical-valence-testing/
@@ -458,7 +458,7 @@ clinical-valence-testing/
     └── API_REFERENCE.md      # API documentation
 ```
 
-## 🔬 Advanced Usage
+## Advanced Usage
 
 ### Custom Shift Implementation
 
@@ -540,7 +540,7 @@ logging:
   log_file: "./logs/debug.log"
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -587,31 +587,31 @@ If you use this project in your research, please cite:
 }
 ```
 
-## 📝 License
+## License
 
 This project follows the licensing terms of the original Clinical Behavioral Testing project.
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please see `CONTRIBUTING.md` for guidelines.
 
-## 📧 Contact
+## Contact
 
 For questions or issues, please:
 1. Check the [documentation](docs/)
 2. Search [existing issues](https://github.com/gyasifred/clinical-valence-testing/issues)
 3. Open a new issue with detailed description
 
-## 🔄 Version History
+## Version History
 
-- **v1.0.0** (Current): Publication-ready release with full statistical analysis and visualization
-  - ✅ All critical bugs fixed
-  - ✅ Comprehensive documentation
-  - ✅ Interactive visualizations
-  - ✅ Statistical rigor for publication
+- **v1.0.0** (Current): Production-ready release with full statistical analysis and visualization
+  - All critical bugs fixed
+  - Comprehensive documentation
+  - Interactive visualizations
+  - Statistical rigor for publication
 
 ---
 
-**Status:** ✅ Ready for Publication
+**Status:** Production Ready
 
-Built with ❤️ for the clinical NLP research community.
+Built for the clinical NLP research community.

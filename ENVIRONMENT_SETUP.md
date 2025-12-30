@@ -213,12 +213,12 @@ For successful installation, you should see:
 ```
 PyTorch: 2.1.0+cu121
 Transformers: 4.35.0
-✓ Data science packages OK
+[OK] Data science packages OK
 CUDA available: True
 CUDA version: 12.1
 GPU count: 1
 GPU name: NVIDIA H100 PCIe
-✓ All project imports successful
+[OK] All project imports successful
 ```
 
 ### Check Package Versions
