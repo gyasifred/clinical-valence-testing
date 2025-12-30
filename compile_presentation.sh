@@ -20,7 +20,7 @@ if ! command -v pdflatex &> /dev/null; then
     exit 1
 fi
 
-echo "✓ pdflatex found"
+echo "[OK] pdflatex found"
 echo ""
 
 # Compile the document
@@ -48,7 +48,7 @@ pdflatex -interaction=nonstopmode RESEARCH_PRESENTATION.tex > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     echo ""
     echo "========================================="
-    echo "✓ SUCCESS!"
+    echo "[SUCCESS] Compilation complete"
     echo "========================================="
     echo ""
     echo "PDF created: RESEARCH_PRESENTATION.pdf"
@@ -66,7 +66,7 @@ if [ $? -eq 0 ]; then
           RESEARCH_PRESENTATION.bbl \
           RESEARCH_PRESENTATION.blg
 
-    echo "✓ Cleanup complete"
+    echo "[OK] Cleanup complete"
     echo ""
     echo "You can now view the PDF:"
     echo "  Linux: xdg-open RESEARCH_PRESENTATION.pdf"
