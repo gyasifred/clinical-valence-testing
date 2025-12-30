@@ -431,8 +431,8 @@ def main():
     # Create dashboard
     viz.create_dashboard(args.output)
 
-    print(f"\n✅ Dashboard created successfully!")
-    print(f"📊 Open {args.output} in your web browser to explore results")
+    print(f"\n[SUCCESS] Dashboard created successfully")
+    print(f"[INFO] Open {args.output} in your web browser to explore results")
 
 
 if __name__ == "__main__":

@@ -86,8 +86,11 @@ if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/
     echo -e "  GPU memory: ${GPU_MEMORY} GB"
 
     # Optimize batch size based on GPU memory
-    if [[ "$GPU_INFO" == *"H100"* ]]; then
-        BATCH_SIZE="512"  # H100 has 80GB, can handle large batches
+    if [[ "$GPU_INFO" == *"H100 NVL"* ]]; then
+        BATCH_SIZE="768"  # H100 NVL has 95GB, can handle very large batches
+        echo -e "${GREEN}  Using H100 NVL-optimized batch size: $BATCH_SIZE${NC}"
+    elif [[ "$GPU_INFO" == *"H100"* ]]; then
+        BATCH_SIZE="512"  # H100 SXM/PCIe has 80GB, can handle large batches
         echo -e "${GREEN}  Using H100-optimized batch size: $BATCH_SIZE${NC}"
     elif (( $(echo "$GPU_MEMORY > 40" | bc -l) )); then
         BATCH_SIZE="256"  # High-end GPU (A100, etc.)
