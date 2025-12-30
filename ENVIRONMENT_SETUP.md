@@ -62,12 +62,12 @@ bash setup_environment.sh
 ```
 
 The script will:
-- ✓ Check Python version
-- ✓ Check GPU availability
-- ✓ Create virtual environment
-- ✓ Install all dependencies with H100 optimization
-- ✓ Verify installation
-- ✓ Run test imports
+- Check Python version
+- Check GPU availability
+- Create virtual environment
+- Install all dependencies with H100 optimization
+- Verify installation
+- Run test imports
 
 ---
 
@@ -192,7 +192,7 @@ Or manually verify:
 # Test Python imports
 python -c "import torch; print(f'PyTorch: {torch.__version__}')"
 python -c "import transformers; print(f'Transformers: {transformers.__version__}')"
-python -c "import pandas, numpy, scipy; print('✓ Data science packages OK')"
+python -c "import pandas, numpy, scipy; print('[OK] Data science packages')"
 
 # Test CUDA availability
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
@@ -203,7 +203,7 @@ python -c "import torch; print(f'GPU count: {torch.cuda.device_count()}')"
 python -c "import torch; print(f'GPU name: {torch.cuda.get_device_name(0)}')"
 
 # Test all project imports
-python -c "from config_loader import get_config; from logger import setup_logging; from statistical_analysis import StatisticalAnalyzer; print('✓ All project imports successful')"
+python -c "from config_loader import get_config; from logger import setup_logging; from statistical_analysis import StatisticalAnalyzer; print('[OK] All project imports successful')"
 ```
 
 ### Expected Output
