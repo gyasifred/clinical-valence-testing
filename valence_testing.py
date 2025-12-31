@@ -74,8 +74,10 @@ class BehavioralTesting:
         """
         try:
             shift_groups = shift.get_group_names()
+            # Convert numpy array to list to avoid boolean ambiguity
+            samples_list = self.test_df[self.text_label].tolist()
             shifted_samples, stats = shift.make_shift(
-                samples=self.test_df[self.text_label].values,
+                samples=samples_list,
                 return_stats=True
             )
             return dict(zip(shift_groups, shifted_samples)), stats

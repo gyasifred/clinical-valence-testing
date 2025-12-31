@@ -38,7 +38,14 @@ class BaseShift:
             If return_stats is False: List of lists (one per group)
             If return_stats is True: Tuple of (shift_groups, stats)
         """
-        if not samples:
+        if not isinstance(samples, list):
+            import numpy as np
+            if isinstance(samples, np.ndarray):
+                samples = samples.tolist()
+            else:
+                samples = list(samples)
+
+        if len(samples) == 0:
             logger.warning("Empty samples list provided to make_shift")
             return ([], {"total_samples": 0}) if return_stats else []
 
