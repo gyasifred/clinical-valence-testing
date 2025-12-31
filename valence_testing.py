@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
@@ -10,7 +10,7 @@ from prediction import Predictor
 class TestResults:
     """Stores results from behavioral testing"""
     shift_statistics: Dict
-    timestamp: str = datetime.now().isoformat()
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     
     def to_dict(self):
         return {

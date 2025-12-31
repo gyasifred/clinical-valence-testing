@@ -48,7 +48,7 @@ echo -e "${GREEN}[OK] Test dataset found: $TEST_DATA${NC}"
 # Check if diagnosis codes file exists (optional)
 if [ -f "$DIAGNOSIS_CODES" ]; then
     echo -e "${GREEN}[OK] Diagnosis codes file found: $DIAGNOSIS_CODES${NC}"
-    NUM_CODES=$(wc -l < "$DIAGNOSIS_CODES" 2>/dev/null || echo "unknown")
+    NUM_CODES=$(wc -w < "$DIAGNOSIS_CODES" 2>/dev/null || echo "unknown")
     echo -e "  Number of diagnosis codes: $NUM_CODES"
 else
     echo -e "${YELLOW}[WARNING] Diagnosis codes file not found (optional): $DIAGNOSIS_CODES${NC}"
