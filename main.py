@@ -118,7 +118,7 @@ def run(
             shift_keys = ["neutralize", "pejorative", "laud", "neutralval"]
 
         # Log experiment info
-        log_experiment_info({
+        log_experiment_info(logger, {
             "test_set_path": test_set_path,
             "model_path": model_path,
             "shifts": shift_keys,
