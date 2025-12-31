@@ -1,9 +1,3 @@
-"""
-Configuration management for Clinical Valence Testing.
-
-This module provides functionality to load, validate, and access
-configuration parameters from YAML files.
-"""
 
 import os
 from pathlib import Path
@@ -17,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelConfig:
-    """Model configuration parameters."""
     name: str = "bvanaken/CORe-clinical-outcome-biobert-v1"
     max_length: int = 512
     batch_size: int = 128
     device: str = "auto"
+    use_gpu: bool = True
     attention: Dict[str, Any] = field(default_factory=lambda: {
         "layer_num": 11,
         "head_num": 11,
@@ -31,15 +25,14 @@ class ModelConfig:
 
 @dataclass
 class DataConfig:
-    """Data configuration parameters."""
     code_label: str = "short_codes"
     text_label: str = "text"
     min_code_frequency: int = 100
+    test_set_path: str = "./data/test.csv"
 
 
 @dataclass
 class PredictionConfig:
-    """Prediction configuration parameters."""
     threshold: float = 0.5
     checkpoint_interval: int = 1000
     save_attention: bool = True
@@ -48,7 +41,6 @@ class PredictionConfig:
 
 @dataclass
 class TrainingConfig:
-    """Training configuration parameters."""
     num_epochs: int = 5
     learning_rate: float = 2e-5
     weight_decay: float = 0.01
@@ -59,7 +51,6 @@ class TrainingConfig:
 
 @dataclass
 class AnalysisConfig:
-    """Analysis configuration parameters."""
     baseline: str = "neutralize"
     significance_level: float = 0.05
     multiple_testing_correction: str = "fdr_bh"
@@ -70,7 +61,6 @@ class AnalysisConfig:
 
 @dataclass
 class LoggingConfig:
-    """Logging configuration parameters."""
     level: str = "INFO"
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     file: str = "clinical_valence_testing.log"
@@ -79,40 +69,15 @@ class LoggingConfig:
 
 @dataclass
 class OutputConfig:
-    """Output configuration parameters."""
     save_dir: str = "./results"
+    results_dir: str = "./results"
     create_timestamp_dirs: bool = True
     save_format: str = "csv"
     compression: Optional[str] = None
 
 
 class Config:
-    """
-    Central configuration manager for Clinical Valence Testing.
-
-    This class loads configuration from a YAML file and provides
-    type-safe access to configuration parameters.
-
-    Attributes:
-        model: Model configuration
-        data: Data configuration
-        prediction: Prediction configuration
-        training: Training configuration
-        analysis: Analysis configuration
-        logging_config: Logging configuration
-        output: Output configuration
-        random_seed: Random seed for reproducibility
-        deterministic: Whether to use deterministic algorithms
-    """
-
     def __init__(self, config_path: Optional[Union[str, Path]] = None):
-        """
-        Initialize configuration.
-
-        Args:
-            config_path: Path to YAML configuration file.
-                        If None, looks for config.yaml in current directory.
-        """
         if config_path is None:
             config_path = Path(__file__).parent / "config.yaml"
         else:
@@ -141,7 +106,6 @@ class Config:
 
     @staticmethod
     def _load_config(config_path: Path) -> Dict[str, Any]:
-        """Load configuration from YAML file."""
         try:
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
@@ -152,27 +116,26 @@ class Config:
             return {}
 
     def _init_model_config(self) -> ModelConfig:
-        """Initialize model configuration."""
         model_cfg = self._config.get('model', {})
         return ModelConfig(
             name=model_cfg.get('name', ModelConfig.name),
             max_length=model_cfg.get('max_length', ModelConfig.max_length),
             batch_size=model_cfg.get('batch_size', ModelConfig.batch_size),
             device=model_cfg.get('device', ModelConfig.device),
-            attention=model_cfg.get('attention', ModelConfig.attention)
+            use_gpu=model_cfg.get('use_gpu', ModelConfig.use_gpu),
+            attention=model_cfg.get('attention', {"layer_num": 11, "head_num": 11, "aggregation": "average"})
         )
 
     def _init_data_config(self) -> DataConfig:
-        """Initialize data configuration."""
         data_cfg = self._config.get('data', {})
         return DataConfig(
             code_label=data_cfg.get('code_label', DataConfig.code_label),
             text_label=data_cfg.get('text_label', DataConfig.text_label),
-            min_code_frequency=data_cfg.get('min_code_frequency', DataConfig.min_code_frequency)
+            min_code_frequency=data_cfg.get('min_code_frequency', DataConfig.min_code_frequency),
+            test_set_path=data_cfg.get('test_set_path', DataConfig.test_set_path)
         )
 
     def _init_prediction_config(self) -> PredictionConfig:
-        """Initialize prediction configuration."""
         pred_cfg = self._config.get('prediction', {})
         return PredictionConfig(
             threshold=pred_cfg.get('threshold', PredictionConfig.threshold),
@@ -182,7 +145,6 @@ class Config:
         )
 
     def _init_training_config(self) -> TrainingConfig:
-        """Initialize training configuration."""
         train_cfg = self._config.get('training', {})
         return TrainingConfig(
             num_epochs=train_cfg.get('num_epochs', TrainingConfig.num_epochs),
@@ -194,7 +156,6 @@ class Config:
         )
 
     def _init_analysis_config(self) -> AnalysisConfig:
-        """Initialize analysis configuration."""
         analysis_cfg = self._config.get('analysis', {})
         return AnalysisConfig(
             baseline=analysis_cfg.get('baseline', AnalysisConfig.baseline),
@@ -206,7 +167,6 @@ class Config:
         )
 
     def _init_logging_config(self) -> LoggingConfig:
-        """Initialize logging configuration."""
         log_cfg = self._config.get('logging', {})
         return LoggingConfig(
             level=log_cfg.get('level', LoggingConfig.level),
@@ -216,26 +176,16 @@ class Config:
         )
 
     def _init_output_config(self) -> OutputConfig:
-        """Initialize output configuration."""
         output_cfg = self._config.get('output', {})
         return OutputConfig(
             save_dir=output_cfg.get('save_dir', OutputConfig.save_dir),
+            results_dir=output_cfg.get('results_dir', OutputConfig.results_dir),
             create_timestamp_dirs=output_cfg.get('create_timestamp_dirs', OutputConfig.create_timestamp_dirs),
             save_format=output_cfg.get('save_format', OutputConfig.save_format),
             compression=output_cfg.get('compression', OutputConfig.compression)
         )
 
     def get_shift_terms(self, shift_type: str, level: Optional[str] = None) -> Union[Dict, list]:
-        """
-        Get shift terms for a specific shift type and level.
-
-        Args:
-            shift_type: Type of shift (pejorative, laudatory, neutral)
-            level: Specific level within shift type (optional)
-
-        Returns:
-            Dictionary of levels and terms, or list of terms for specific level
-        """
         shift_config = self.shifts.get(shift_type, {})
         if level is None:
             return shift_config.get('levels', {})
@@ -243,12 +193,6 @@ class Config:
             return shift_config.get('levels', {}).get(level, [])
 
     def save(self, path: Union[str, Path]):
-        """
-        Save current configuration to YAML file.
-
-        Args:
-            path: Path to save configuration file
-        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -258,7 +202,6 @@ class Config:
         logger.info(f"Saved configuration to {path}")
 
     def __repr__(self) -> str:
-        """String representation of configuration."""
         return (
             f"Config(\n"
             f"  model={self.model},\n"
@@ -273,15 +216,6 @@ _config_instance: Optional[Config] = None
 
 
 def get_config(config_path: Optional[Union[str, Path]] = None) -> Config:
-    """
-    Get global configuration instance (singleton pattern).
-
-    Args:
-        config_path: Path to configuration file (only used on first call)
-
-    Returns:
-        Configuration instance
-    """
     global _config_instance
     if _config_instance is None:
         _config_instance = Config(config_path)
@@ -289,6 +223,5 @@ def get_config(config_path: Optional[Union[str, Path]] = None) -> Config:
 
 
 def reset_config():
-    """Reset global configuration instance."""
     global _config_instance
     _config_instance = None
