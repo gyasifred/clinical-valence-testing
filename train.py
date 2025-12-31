@@ -172,7 +172,7 @@ def train_model(
     train_path: str,
     val_path: str = None,
     output_dir: str = "./models/icd_classifier",
-    base_model: str = "bvanaken/CORe-clinical-outcome-biobert-v1",
+    base_model: str = "DATEXIS/CORe-clinical-diagnosis-prediction",
     config_path: str = None,
     **kwargs
 ):
@@ -321,7 +321,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_path", type=str, required=True, help="Path to training data CSV")
     parser.add_argument("--val_path", type=str, default=None, help="Path to validation data CSV (optional)")
     parser.add_argument("--output_dir", type=str, default="./models/icd_classifier", help="Output directory")
-    parser.add_argument("--base_model", type=str, default="bvanaken/CORe-clinical-outcome-biobert-v1", help="Base model")
+    parser.add_argument("--base_model", type=str, default="DATEXIS/CORe-clinical-diagnosis-prediction", help="Base model")
     parser.add_argument("--config_path", type=str, default=None, help="Config file path")
     parser.add_argument("--num_epochs", type=int, default=None, help="Number of epochs")
     parser.add_argument("--batch_size", type=int, default=None, help="Batch size")

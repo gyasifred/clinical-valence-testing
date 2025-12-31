@@ -23,7 +23,7 @@ echo ""
 TRAIN_DATA="./data/DIA_GROUPS_3_DIGITS_adm_train.csv"
 VAL_DATA="./data/DIA_GROUPS_3_DIGITS_adm_val.csv"
 OUTPUT_DIR="./models/icd_classifier"
-BASE_MODEL="bvanaken/CORe-clinical-outcome-biobert-v1"
+BASE_MODEL="DATEXIS/CORe-clinical-diagnosis-prediction"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # Check if training data exists
