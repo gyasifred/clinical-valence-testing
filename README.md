@@ -1,122 +1,76 @@
-# Clinical Valence Testing with Attention Analysis
+# Clinical Valence Testing
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Testing framework for analyzing how valence-laden language (pejorative, laudatory, neutral) affects clinical NLP model predictions and attention patterns.
 
-A comprehensive framework for testing how valence-laden language (pejorative, laudatory, neutral) affects clinical NLP model predictions. This project extends the work of [Clinical Behavioral Testing](https://github.com/bvanaken/clinical-behavioral-testing) by van Aken et al. with attention analysis and statistical rigor for publication-ready research.
+## Overview
 
-## Table of Contents
-
-- [Features](#features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Step-by-Step Usage Guide](#step-by-step-usage-guide)
-- [Configuration](#configuration)
-- [Understanding the Output](#understanding-the-output)
-- [Project Structure](#project-structure)
-- [Advanced Usage](#advanced-usage)
-- [Citation](#citation)
-
-## Features
-
-### Core Capabilities
-- **Behavioral Testing**: Systematic testing of clinical NLP models with linguistic perturbations
-- **Attention Analysis**: Extract and analyze transformer attention patterns
-- **Statistical Analysis**: Comprehensive hypothesis testing, effect sizes, and multiple comparison corrections
-- **Interactive Visualization**: Plotly-based dashboards for exploring results
-- **Configuration Management**: YAML-based config with command-line override
-- **Comprehensive Logging**: Colored console output and file logging with progress tracking
-- **Reproducibility**: Random seed control and deterministic mode for exact replication
-
-### Shift Types
-1. **Pejorative Shift**: Tests impact of negative patient descriptors (e.g., "difficult", "non-compliant")
-2. **Laudatory Shift**: Tests impact of positive patient descriptors (e.g., "cooperative", "pleasant")
-3. **Neutral Valence Shift**: Tests objective descriptors (e.g., "alert", "oriented")
-4. **Neutralize Shift**: Removes all valence terms to create baseline
-
-### Statistical Analysis
-- Paired t-tests and Wilcoxon signed-rank tests
-- Effect sizes (Cohen's d, Hedges' g)
-- Multiple comparison correction (FDR, Bonferroni)
-- Bootstrap confidence intervals
-- Comprehensive analysis reports
+This framework performs behavioral testing of clinical NLP models by:
+- Applying linguistic perturbations (valence shifts) to clinical texts
+- Extracting model predictions and attention weights
+- Performing statistical analysis of prediction changes
+- Analyzing attention pattern shifts across different valence types
 
 ## Installation
 
 ### Prerequisites
-- Python 3.8 or higher
-- CUDA-capable GPU (optional, but recommended)
+- Python 3.8+
+- NVIDIA H100 NVL GPU (95GB) with CUDA 12.1+
 
-### Step 1: Clone the Repository
+### Setup
+
 ```bash
+# Clone repository
 git clone https://github.com/gyasifred/clinical-valence-testing.git
 cd clinical-valence-testing
-```
 
-### Step 2: Create Virtual Environment (Recommended)
-```bash
-# Create virtual environment
-python -m venv venv
+# Run automated setup
+bash setup_environment.sh
 
 # Activate virtual environment
-# On Linux/Mac:
 source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
 ```
 
-### Step 3: Install Dependencies
+## Data Setup
+
+Place your test data in the `data/` directory:
+
 ```bash
-pip install -r requirements.txt
+cp /path/to/DIA_GROUPS_3_DIGITS_adm_test.csv ./data/
+cp /path/to/ALL_3_DIGIT_DIA_CODES.txt ./data/
 ```
 
-### Step 4: Verify Installation
+**Expected CSV format:**
+```csv
+"id","text","short_codes"
+"116159","CHIEF COMPLAINT: Positive ETT...","['I21.9','R07.9']"
+```
+
+## Usage
+
+### Automated Run
+
 ```bash
-python -c "import torch; import transformers; print('[OK] Installation successful')"
+bash run_analysis.sh
 ```
 
-## Quick Start
-
-### Minimal Example
-
-Run all shifts with default configuration:
+### Manual Run
 
 ```bash
 python main.py \
-  --test_set_path ./data/test_set.csv \
-  --model_path DATEXIS/CORe-clinical-diagnosis-prediction
+  --test_set_path ./data/DIA_GROUPS_3_DIGITS_adm_test.csv \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
+  --shift_keys neutralize,pejorative,laud,neutralval \
+  --gpu true \
+  --batch_size 768 \
+  --code_label short_codes \
+  --random_seed 42
 ```
 
-This will:
-1. Load configuration from `config.yaml`
-2. Run all four shift types (neutralize, pejorative, laud, neutralval)
-3. Save results to `./results/` directory
-4. Generate statistical analysis and visualizations
+## Configuration
 
-## Step-by-Step Usage Guide
-
-### Step 1: Prepare Your Data
-
-Your test dataset should be a CSV file with at least two columns:
-- **Clinical text column**: Contains clinical notes/texts
-- **Code column**: Contains diagnosis codes (ICD codes)
-
-**Example CSV format:**
-```csv
-text,short_codes
-"Patient presents with chest pain and shortness of breath. Alert and oriented.","['I21.9','R07.9']"
-"The cooperative patient reports abdominal pain. Vitals stable.","['R10.9']"
-```
-
-**Data location:** Place your test data file in an accessible directory (e.g., `./data/test_set.csv`)
-
-### Step 2: Configure the System
-
-Edit `config.yaml` to match your setup:
+Edit `config.yaml` for custom settings:
 
 ```yaml
-# Model Configuration
 model:
   name: "DATEXIS/CORe-clinical-diagnosis-prediction"  # Pre-trained ICD classifier
   batch_size: 768  # Optimized for H100 NVL (95GB); reduce to 512 for H100 SXM/PCIe (80GB)
@@ -125,26 +79,17 @@ model:
   attention:
     layer_num: 11
     head_num: 11
-    aggregation: "average"  # Prevents sub-token bias in attention analysis
+    aggregation: "average"
 
-# Data Configuration
 data:
-  test_set_path: "./data/test_set.csv"
+  test_set_path: "./data/DIA_GROUPS_3_DIGITS_adm_test.csv"
   text_label: "text"
   code_label: "short_codes"
 
-# Output Configuration
-output:
-  results_dir: "./results"
-  save_attention: true
-  save_predictions: true
-
-# Reproducibility
 random_seed: 42
-deterministic: true
 ```
 
-### Step 3: Run Basic Behavioral Tests
+## Shift Types
 
 **Command:**
 ```bash
@@ -406,43 +351,39 @@ sample_id,original_text,shifted_text,original_prediction,shifted_prediction,pred
 Plain text summary of each shift's impact:
 
 ```
-Shift Statistics: Pejorative
-============================
-Total samples: 1000
-Samples with shift applied: 847
-Samples skipped: 153
-Average prediction change: 0.085
-Max prediction change: 0.42
-Min prediction change: 0.001
+results/
+├── neutralize_shift_diagnosis.csv
+├── pejorative_shift_diagnosis.csv
+├── laud_shift_diagnosis.csv
+├── neutralval_shift_diagnosis.csv
+└── statistical_analysis.txt
 ```
 
-### 3. Statistical Analysis Report
+Each CSV contains:
+- Original and shifted text
+- Model predictions before/after shift
+- Prediction differences
+- Attention weights
 
-Comprehensive statistical analysis (`statistical_analysis.txt`):
+## Parameters
 
-```
-COMPREHENSIVE STATISTICAL ANALYSIS
-===================================
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `test_set_path` | from config | Path to test CSV |
+| `model_path` | from config | HuggingFace model ID or local path |
+| `shift_keys` | all | Comma-separated shift names |
+| `gpu` | false | Use GPU acceleration |
+| `batch_size` | 768 | Batch size (768 for H100 NVL) |
+| `code_label` | "short_codes" | Column name for diagnosis codes |
+| `random_seed` | 42 | Random seed for reproducibility |
 
-1. PAIRED T-TESTS
------------------
-Pejorative vs Neutralize:
-  t-statistic: 5.23
-  p-value: 0.0001 ***
-  Cohen's d: 0.34 (medium effect)
-  95% CI: [0.052, 0.118]
+## GPU Optimization
 
-2. EFFECT SIZES
----------------
-Pejorative: Cohen's d = 0.34 (medium)
-Laudatory: Cohen's d = -0.21 (small)
-
-3. MULTIPLE COMPARISON CORRECTION
-----------------------------------
-FDR-corrected p-values:
-  Pejorative: 0.0002 ***
-  Laudatory: 0.023 *
-```
+| GPU Model | Memory | Batch Size |
+|-----------|--------|------------|
+| H100 NVL | 95GB | 768 |
+| H100 SXM/PCIe | 80GB | 512 |
+| A100 | 40-80GB | 256 |
 
 ## Project Structure
 
@@ -604,29 +545,8 @@ If you use this project in your research, please cite:
 
 ## License
 
-This project follows the licensing terms of the original Clinical Behavioral Testing project.
+MIT License
 
-## Contributing
+## Version
 
-Contributions are welcome! Please see `CONTRIBUTING.md` for guidelines.
-
-## Contact
-
-For questions or issues, please:
-1. Check the [documentation](docs/)
-2. Search [existing issues](https://github.com/gyasifred/clinical-valence-testing/issues)
-3. Open a new issue with detailed description
-
-## Version History
-
-- **v1.0.0** (Current): Production-ready release with full statistical analysis and visualization
-  - All critical bugs fixed
-  - Comprehensive documentation
-  - Interactive visualizations
-  - Statistical rigor for publication
-
----
-
-**Status:** Production Ready
-
-Built for the clinical NLP research community.
+1.0.0 (2025)
