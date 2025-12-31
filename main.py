@@ -97,8 +97,8 @@ def run(
         # Use config for model parameters
         gpu = gpu if gpu is not None else config.model.use_gpu
         batch_size = batch_size if batch_size is not None else config.model.batch_size
-        head_num = head_num if head_num is not None else config.model.attention.head_num
-        layer_num = layer_num if layer_num is not None else config.model.attention.layer_num
+        head_num = head_num if head_num is not None else config.model.attention['head_num']
+        layer_num = layer_num if layer_num is not None else config.model.attention['layer_num']
         random_seed = random_seed if random_seed is not None else config.random_seed
 
         # Set random seeds for reproducibility
