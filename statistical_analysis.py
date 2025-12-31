@@ -1,9 +1,4 @@
-"""
-Statistical Analysis Module for Clinical Valence Testing.
-
-This module provides comprehensive statistical analysis functions for
-evaluating the effect of valence shifts on clinical predictions.
-"""
+"""Statistical Analysis Module for Clinical Valence Testing."""
 
 import numpy as np
 import pandas as pd
@@ -20,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class StatisticalTestResult:
-    """Container for statistical test results."""
     test_name: str
     statistic: float
     p_value: float
@@ -30,7 +24,6 @@ class StatisticalTestResult:
     additional_info: Optional[Dict] = None
 
     def to_dict(self) -> Dict:
-        """Convert to dictionary."""
         return {
             'test_name': self.test_name,
             'statistic': self.statistic,
@@ -44,30 +37,13 @@ class StatisticalTestResult:
 
 
 class StatisticalAnalyzer:
-    """
-    Comprehensive statistical analysis for valence testing results.
-
-    This class provides methods for:
-    - Hypothesis testing (paired t-tests, Wilcoxon, etc.)
-    - Effect size calculation (Cohen's d, Hedges' g, etc.)
-    - Confidence interval estimation
-    - Multiple comparison correction
-    - Distribution analysis
-    """
+    """Statistical analysis for valence testing results."""
 
     def __init__(
         self,
         significance_level: float = 0.05,
         correction_method: str = "fdr_bh"
     ):
-        """
-        Initialize statistical analyzer.
-
-        Args:
-            significance_level: Alpha level for significance testing
-            correction_method: Method for multiple comparison correction
-                             ('bonferroni', 'fdr_bh', 'fdr_by', or 'none')
-        """
         self.significance_level = significance_level
         self.correction_method = correction_method
         logger.info(
@@ -81,24 +57,19 @@ class StatisticalAnalyzer:
         group2: np.ndarray,
         paired: bool = True
     ) -> float:
-        """
-        Calculate Cohen's d effect size.
-
-        Args:
-            group1: First group of observations
-            group2: Second group of observations
-            paired: Whether groups are paired
-
-        Returns:
-            Cohen's d effect size
-        """
+        """Calculate Cohen's d effect size."""
         if paired:
             diff = group1 - group2
-            return np.mean(diff) / np.std(diff, ddof=1)
+            std_diff = np.std(diff, ddof=1)
+            if std_diff == 0 or np.isnan(std_diff):
+                return 0.0
+            return np.mean(diff) / std_diff
         else:
             n1, n2 = len(group1), len(group2)
             var1, var2 = np.var(group1, ddof=1), np.var(group2, ddof=1)
             pooled_std = np.sqrt(((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2))
+            if pooled_std == 0 or np.isnan(pooled_std):
+                return 0.0
             return (np.mean(group1) - np.mean(group2)) / pooled_std
 
     def hedges_g(
@@ -107,17 +78,7 @@ class StatisticalAnalyzer:
         group2: np.ndarray,
         paired: bool = True
     ) -> float:
-        """
-        Calculate Hedges' g effect size (bias-corrected Cohen's d).
-
-        Args:
-            group1: First group of observations
-            group2: Second group of observations
-            paired: Whether groups are paired
-
-        Returns:
-            Hedges' g effect size
-        """
+        """Calculate Hedges' g effect size (bias-corrected Cohen's d)."""
         d = self.cohens_d(group1, group2, paired)
         n = len(group1) if paired else len(group1) + len(group2)
         correction_factor = 1 - (3 / (4 * n - 9))
@@ -129,21 +90,10 @@ class StatisticalAnalyzer:
         treatment: np.ndarray,
         alternative: str = "two-sided"
     ) -> StatisticalTestResult:
-        """
-        Perform paired t-test.
-
-        Args:
-            baseline: Baseline group observations
-            treatment: Treatment group observations
-            alternative: Alternative hypothesis ('two-sided', 'less', 'greater')
-
-        Returns:
-            Statistical test result
-        """
+        """Perform paired t-test."""
         statistic, p_value = ttest_rel(baseline, treatment, alternative=alternative)
         effect_size = self.cohens_d(treatment, baseline, paired=True)
 
-        # Calculate confidence interval for mean difference
         diff = treatment - baseline
         se = stats.sem(diff)
         ci = stats.t.interval(
@@ -173,17 +123,7 @@ class StatisticalAnalyzer:
         treatment: np.ndarray,
         alternative: str = "two-sided"
     ) -> StatisticalTestResult:
-        """
-        Perform Wilcoxon signed-rank test (non-parametric paired test).
-
-        Args:
-            baseline: Baseline group observations
-            treatment: Treatment group observations
-            alternative: Alternative hypothesis ('two-sided', 'less', 'greater')
-
-        Returns:
-            Statistical test result
-        """
+        """Perform Wilcoxon signed-rank test (non-parametric paired test)."""
         statistic, p_value = wilcoxon(
             baseline,
             treatment,
@@ -191,7 +131,6 @@ class StatisticalAnalyzer:
             zero_method='wilcox'
         )
 
-        # Calculate rank-biserial correlation as effect size
         diff = treatment - baseline
         n_pos = np.sum(diff > 0)
         n_neg = np.sum(diff < 0)
@@ -217,24 +156,13 @@ class StatisticalAnalyzer:
         group2: np.ndarray,
         alternative: str = "two-sided"
     ) -> StatisticalTestResult:
-        """
-        Perform Mann-Whitney U test (non-parametric unpaired test).
-
-        Args:
-            group1: First group observations
-            group2: Second group observations
-            alternative: Alternative hypothesis ('two-sided', 'less', 'greater')
-
-        Returns:
-            Statistical test result
-        """
+        """Perform Mann-Whitney U test (non-parametric unpaired test)."""
         statistic, p_value = mannwhitneyu(
             group1,
             group2,
             alternative=alternative
         )
 
-        # Calculate rank-biserial correlation
         n1, n2 = len(group1), len(group2)
         r = 1 - (2 * statistic) / (n1 * n2)
 
@@ -259,43 +187,19 @@ class StatisticalAnalyzer:
         alternative: str = "two-sided",
         random_seed: Optional[int] = None
     ) -> StatisticalTestResult:
-        """
-        Perform paired permutation test (approximate randomization).
-
-        This is a non-parametric test that doesn't assume normality.
-        It tests whether the observed difference is significant by
-        randomly permuting the assignment of baseline/treatment labels.
-
-        Reference: Yeh (2000) - More Accurate Tests for the Statistical
-        Significance of Result Differences.
-
-        Args:
-            baseline: Baseline group observations
-            treatment: Treatment group observations
-            n_permutations: Number of random permutations
-            alternative: Alternative hypothesis ('two-sided', 'greater', 'less')
-            random_seed: Random seed for reproducibility
-
-        Returns:
-            StatisticalTestResult with permutation p-value
-        """
+        """Paired permutation test (Yeh 2000 approximate randomization)."""
         if random_seed is not None:
             np.random.seed(random_seed)
 
-        # Calculate observed difference
         observed_diff = np.mean(treatment - baseline)
-
-        # Generate permutations
         n_samples = len(baseline)
         count_extreme = 0
 
-        # Vectorized approach for efficiency
         flip_masks = np.random.choice([-1, 1], size=(n_permutations, n_samples))
         diffs = treatment - baseline
         permuted_diffs = flip_masks * diffs[np.newaxis, :]
         permuted_means = np.mean(permuted_diffs, axis=1)
 
-        # Count extreme values based on alternative hypothesis
         if alternative == "two-sided":
             count_extreme = np.sum(np.abs(permuted_means) >= abs(observed_diff))
         elif alternative == "greater":
@@ -303,13 +207,9 @@ class StatisticalAnalyzer:
         elif alternative == "less":
             count_extreme = np.sum(permuted_means <= observed_diff)
 
-        # Calculate p-value
         p_value = (count_extreme + 1) / (n_permutations + 1)
-
-        # Calculate effect size (same as paired t-test)
         effect_size = self.cohens_d(treatment, baseline, paired=True)
 
-        # Bootstrap CI for mean difference
         _, ci = self.bootstrap_confidence_interval(
             treatment - baseline,
             np.mean,
@@ -338,44 +238,21 @@ class StatisticalAnalyzer:
         n_permutations: int = 10000,
         random_seed: Optional[int] = None
     ) -> StatisticalTestResult:
-        """
-        Stratified permutation test for binary classification outcomes.
-
-        Stratifies by agreement pattern:
-        - Both positive (TP-TP): Keep fixed
-        - Both negative (TN-TN): Keep fixed
-        - Baseline+/Treatment- (TP-FN): Randomize
-        - Baseline-/Treatment+ (FN-TP): Randomize
-
-        This preserves the comparison structure while testing significance,
-        following Yeh (2000)'s stratified randomization approach.
-
-        Args:
-            baseline_binary: Binary predictions for baseline (0 or 1)
-            treatment_binary: Binary predictions for treatment (0 or 1)
-            n_permutations: Number of permutations
-            random_seed: Random seed
-
-        Returns:
-            StatisticalTestResult with accuracy difference and p-value
-        """
+        """Stratified permutation test for binary outcomes (Yeh 2000)."""
         if random_seed is not None:
             np.random.seed(random_seed)
 
-        # Identify strata
         both_positive = (baseline_binary == 1) & (treatment_binary == 1)
         both_negative = (baseline_binary == 0) & (treatment_binary == 0)
         baseline_only = (baseline_binary == 1) & (treatment_binary == 0)
         treatment_only = (baseline_binary == 0) & (treatment_binary == 1)
 
-        # Calculate observed accuracy difference
         observed_metric = np.mean(treatment_binary) - np.mean(baseline_binary)
 
         count_extreme = 0
         n_disagree = np.sum(baseline_only) + np.sum(treatment_only)
 
         if n_disagree == 0:
-            # No disagreements - perfect agreement
             return StatisticalTestResult(
                 test_name="Stratified Permutation Test",
                 statistic=0.0,
@@ -394,30 +271,24 @@ class StatisticalAnalyzer:
         n_baseline_only = np.sum(baseline_only)
 
         for _ in range(n_permutations):
-            # Create permuted arrays
             perm_baseline = baseline_binary.copy()
             perm_treatment = treatment_binary.copy()
 
-            # Randomly reassign disagreements
             random_assignment = np.random.permutation(n_disagree)
             new_baseline_only_idx = disagree_indices[random_assignment < n_baseline_only]
             new_treatment_only_idx = disagree_indices[random_assignment >= n_baseline_only]
 
-            # Reset disagreement positions
             perm_baseline[disagree_indices] = 0
             perm_treatment[disagree_indices] = 0
 
-            # Set new assignments
             perm_baseline[new_baseline_only_idx] = 1
             perm_treatment[new_treatment_only_idx] = 1
 
-            # Preserve agreement strata
             perm_baseline[both_positive] = 1
             perm_treatment[both_positive] = 1
             perm_baseline[both_negative] = 0
             perm_treatment[both_negative] = 0
 
-            # Calculate permuted metric
             permuted_metric = np.mean(perm_treatment) - np.mean(perm_baseline)
 
             if abs(permuted_metric) >= abs(observed_metric):
@@ -447,18 +318,7 @@ class StatisticalAnalyzer:
         n_bootstrap: int = 10000,
         confidence_level: float = 0.95
     ) -> Tuple[float, Tuple[float, float]]:
-        """
-        Calculate bootstrap confidence interval for a statistic.
-
-        Args:
-            data: Input data
-            statistic_func: Function to calculate statistic (e.g., np.mean)
-            n_bootstrap: Number of bootstrap samples
-            confidence_level: Confidence level for interval
-
-        Returns:
-            Tuple of (point estimate, confidence interval)
-        """
+        """Calculate bootstrap confidence interval."""
         bootstrap_stats = []
         n = len(data)
 
@@ -479,15 +339,7 @@ class StatisticalAnalyzer:
         self,
         p_values: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Apply multiple comparison correction to p-values.
-
-        Args:
-            p_values: Array of p-values
-
-        Returns:
-            Tuple of (rejected null hypotheses, corrected p-values)
-        """
+        """Apply multiple comparison correction to p-values."""
         if self.correction_method == 'none':
             rejected = p_values < self.significance_level
             return rejected, p_values
@@ -514,20 +366,7 @@ class StatisticalAnalyzer:
         n_permutations: int = 10000,
         random_seed: Optional[int] = None
     ) -> pd.DataFrame:
-        """
-        Comprehensive analysis of diagnosis probability shifts.
-
-        Args:
-            baseline_probs: Baseline diagnosis probabilities (samples × diagnoses)
-            treatment_probs: Treatment diagnosis probabilities (samples × diagnoses)
-            diagnosis_codes: List of diagnosis codes
-            use_permutation: Whether to include permutation tests (default: True)
-            n_permutations: Number of permutations for randomization tests
-            random_seed: Random seed for permutation tests
-
-        Returns:
-            DataFrame with analysis results per diagnosis
-        """
+        """Analyze diagnosis probability shifts across all codes."""
         results = []
 
         for code in diagnosis_codes:
@@ -631,21 +470,7 @@ class StatisticalAnalyzer:
         n_permutations: int = 10000,
         random_seed: Optional[int] = None
     ) -> pd.DataFrame:
-        """
-        Analyze attention weight shifts for words.
-
-        Args:
-            baseline_attention: Baseline attention weights (samples × words)
-            treatment_attention: Treatment attention weights (samples × words)
-            words: List of words to analyze
-            top_n: Number of top words to return
-            use_permutation: Whether to include permutation tests (default: True)
-            n_permutations: Number of permutations for randomization tests
-            random_seed: Random seed for permutation tests
-
-        Returns:
-            DataFrame with attention shift analysis
-        """
+        """Analyze attention weight shifts for words."""
         results = []
 
         for word in words:
@@ -713,17 +538,7 @@ class StatisticalAnalyzer:
         group_col: str,
         value_cols: List[str]
     ) -> pd.DataFrame:
-        """
-        Calculate summary statistics by group.
-
-        Args:
-            data: Input DataFrame
-            group_col: Column name for grouping
-            value_cols: List of column names for which to calculate statistics
-
-        Returns:
-            DataFrame with summary statistics
-        """
+        """Calculate summary statistics by group."""
         summary_funcs = {
             'count': 'count',
             'mean': 'mean',
@@ -744,15 +559,7 @@ class StatisticalAnalyzer:
         return pd.concat(results, ignore_index=True)
 
     def effect_size_interpretation(self, effect_size: float) -> str:
-        """
-        Interpret effect size magnitude (Cohen's d or Hedges' g).
-
-        Args:
-            effect_size: Effect size value
-
-        Returns:
-            Interpretation string
-        """
+        """Interpret effect size magnitude (Cohen's d or Hedges' g)."""
         abs_es = abs(effect_size)
         if abs_es < 0.2:
             return "negligible"
@@ -769,18 +576,7 @@ class StatisticalAnalyzer:
         attention_results: Optional[pd.DataFrame] = None,
         output_path: Optional[Union[str, Path]] = None
     ) -> str:
-        """
-        Generate comprehensive analysis report.
-
-        Args:
-            diagnosis_results: Results from analyze_diagnosis_shifts
-            attention_results: Results from analyze_attention_shifts (optional)
-            output_path: Path to save report (optional)
-
-        Returns:
-            Report as string
-        """
-        # Check if permutation tests were used
+        """Generate comprehensive analysis report."""
         has_permutation = 'permutation_pvalue' in diagnosis_results.columns
 
         report_lines = [
@@ -813,7 +609,10 @@ class StatisticalAnalyzer:
 
             if len(sig_diagnoses) > 0:
                 report_lines.append("Top 10 most affected diagnoses (t-test):")
-                top_diagnoses = sig_diagnoses.nlargest(10, 'mean_shift', key=abs)
+                # Create abs column for sorting (nlargest doesn't support key parameter)
+                sig_diagnoses_copy = sig_diagnoses.copy()
+                sig_diagnoses_copy['abs_mean_shift'] = sig_diagnoses_copy['mean_shift'].abs()
+                top_diagnoses = sig_diagnoses_copy.nlargest(10, 'abs_mean_shift')
 
                 for _, row in top_diagnoses.iterrows():
                     effect_interp = self.effect_size_interpretation(row['cohens_d'])
@@ -833,7 +632,10 @@ class StatisticalAnalyzer:
 
             if len(sig_diagnoses_perm) > 0:
                 report_lines.append("Top 10 most affected diagnoses (permutation test):")
-                top_diagnoses_perm = sig_diagnoses_perm.nlargest(10, 'mean_shift', key=abs)
+                # Create abs column for sorting (nlargest doesn't support key parameter)
+                sig_diagnoses_perm_copy = sig_diagnoses_perm.copy()
+                sig_diagnoses_perm_copy['abs_mean_shift'] = sig_diagnoses_perm_copy['mean_shift'].abs()
+                top_diagnoses_perm = sig_diagnoses_perm_copy.nlargest(10, 'abs_mean_shift')
 
                 for _, row in top_diagnoses_perm.iterrows():
                     effect_interp = self.effect_size_interpretation(row['cohens_d'])
