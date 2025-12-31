@@ -20,7 +20,6 @@ logger = get_logger(__name__)
 
 @dataclass
 class PredictionState:
-    """Tracks the state of prediction progress for checkpointing"""
     current_group: str
     shift_type: str
     processed_samples: int
@@ -36,11 +35,9 @@ class PredictionState:
         return cls(**data)
 
 class PredictionError(Exception):
-    """Custom exception for prediction-related errors"""
     pass
 
 class FileHandler:
-    """Manages file operations with proper resource handling"""
     def __init__(self, base_path: Path):
         self.base_path = base_path
         self.files = {}
@@ -49,7 +46,6 @@ class FileHandler:
 
     @contextmanager
     def get_writer(self, file_type: str, headers: List[str]):
-        """Thread-safe context manager for CSV writers"""
         with self._lock:
             if file_type not in self.files:
                 self.files[file_type] = open(f"{self.base_path}_{file_type}.csv", 'a', newline='')
@@ -65,7 +61,6 @@ class FileHandler:
                 raise
 
     def close_all(self):
-        """Safely close all open files"""
         with self._lock:
             for file in self.files.values():
                 file.close()
@@ -73,7 +68,6 @@ class FileHandler:
             self.writers.clear()
 
 class Predictor:
-    """Base class for a generic predictor"""
     def predict_group(self, samples: List[str], group_name: str):
         raise NotImplementedError
 
@@ -93,36 +87,15 @@ class TransformerPredictor(Predictor):
         
     @torch.no_grad()
     def inference_from_texts(self, text: str, layer_num: int, head_num: int, aggregation: str) -> Tuple[List[float], List[str], torch.Tensor]:
-        """
-        Extract attention weights and predictions for clinical text.
-
-        Extracts attention FROM [CLS] token TO word tokens, showing which words
-        the model focuses on for classification. Aggregates sub-token attention
-        to word-level and normalizes for fair comparison across samples.
-
-        Args:
-            text: Clinical text to analyze
-            layer_num: Transformer layer (0-11 for BioBERT, higher=more semantic)
-            head_num: Attention head (0-11 for BioBERT, different heads focus on different patterns)
-            aggregation: How to aggregate sub-tokens: "average" (recommended), "sum", or "max"
-
-        Returns:
-            attention_weights: Normalized word-level attention weights
-            words: List of words (de-tokenized from sub-tokens)
-            logits: Model prediction logits
-        """
+        """Extract attention weights and predictions for clinical text."""
         inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512).to(self.device)
 
         self.model.eval()
         outputs = self.model(**inputs, output_attentions=True)
 
-        # Extract attention from specified layer and head
         attentions = outputs.attentions[layer_num][0][head_num].cpu().numpy()
+        cls_attention = attentions[0, :][1:-1]
 
-        # Get attention FROM [CLS] token TO all other tokens (standard for classification)
-        cls_attention = attentions[0, :][1:-1]  # Exclude [CLS] and [SEP] tokens
-
-        # Normalize attention weights to sum to 1.0 for fair comparison across samples
         if cls_attention.sum() > 0:
             cls_attention = cls_attention / cls_attention.sum()
 
@@ -163,25 +136,10 @@ class TransformerPredictor(Predictor):
         return final_attention_weights, input_words, outputs.logits.detach()
 
 class DiagnosisPredictor(TransformerPredictor):
-    """Predictor class specifically for diagnostic predictions with improved file organization"""
-    
-    def __init__(self, checkpoint_path: str, test_set_path: str, gpu: bool = False, 
-                 code_label: str = "short_codes", batch_size: int = 128, 
-                 checkpoint_interval: int = 1000, head_num: int = 11, 
+    def __init__(self, checkpoint_path: str, test_set_path: str, gpu: bool = False,
+                 code_label: str = "short_codes", batch_size: int = 128,
+                 checkpoint_interval: int = 1000, head_num: int = 11,
                  layer_num: int = 11):
-        """
-        Initialize the DiagnosisPredictor
-        
-        Args:
-            checkpoint_path: Path to model checkpoint
-            test_set_path: Path to test dataset
-            gpu: Whether to use GPU
-            code_label: Column name for codes in dataset
-            batch_size: Batch size for predictions
-            checkpoint_interval: Interval for saving checkpoints
-            head_num: Attention head number to use
-            layer_num: Model layer number to use
-        """
         super().__init__(checkpoint_path)
         self.gpu = gpu
         self.batch_size = batch_size
@@ -193,7 +151,6 @@ class DiagnosisPredictor(TransformerPredictor):
         )
         self.label_list = list(self.model.config.label2id.keys())
 
-        # Check for model-data mismatch
         missing_codes = [code for code in self.code_filter if code not in self.label_list]
         if missing_codes:
             logger.error(f"Model-data mismatch detected!")
@@ -217,19 +174,10 @@ class DiagnosisPredictor(TransformerPredictor):
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def _get_shift_base_name(self, group_name: str) -> str:
-        """
-        Extract base shift name from group name
-
-        Args:
-            group_name: Name of the current group
-
-        Returns:
-            Base shift type name
-        """
         shift_types = {
             "pejorative": ["non_compliant","uncooperative","resistant","difficult", "pejorative"],
             "laudatory": ["compliant", "cooperative","pleasant","respectful", "laudatory"],
-            "neutralize": ["no_mention", "neutralized"],  # FIX: Added "neutralized"
+            "neutralize": ["no_mention", "neutralized"],
             "neutralval": ["neutral", "neutralval"]
         }
 
@@ -239,12 +187,6 @@ class DiagnosisPredictor(TransformerPredictor):
         return "default"
 
     def _save_checkpoint(self, save_path: Path):
-        """
-        Save current prediction state
-        
-        Args:
-            save_path: Path to save checkpoint
-        """
         if self.current_state:
             checkpoint_path = save_path.parent / 'checkpoints'
             checkpoint_path.mkdir(exist_ok=True)
@@ -253,15 +195,6 @@ class DiagnosisPredictor(TransformerPredictor):
                 json.dump(self.current_state.to_dict(), f)
 
     def _load_checkpoint(self, save_path: Path) -> Optional[PredictionState]:
-        """
-        Load most recent checkpoint if it exists
-        
-        Args:
-            save_path: Path to load checkpoint from
-            
-        Returns:
-            PredictionState if checkpoint exists, None otherwise
-        """
         checkpoint_path = save_path.parent / 'checkpoints'
         if not checkpoint_path.exists():
             return None
@@ -276,26 +209,11 @@ class DiagnosisPredictor(TransformerPredictor):
             return PredictionState.from_dict(state_dict)
 
     def initialize_for_prediction(self, save_path: str):
-        """
-        Initialize predictor with save path and file handlers
-        
-        Args:
-            save_path: Path to save results
-        """
         self.save_path = Path(save_path)
         self.save_path.parent.mkdir(parents=True, exist_ok=True)
         self.current_state = self._load_checkpoint(self.save_path)
 
     def _get_file_handler(self, group_name: str) -> FileHandler:
-        """
-        Get or create file handler for specific shift type
-        
-        Args:
-            group_name: Name of the current group
-            
-        Returns:
-            FileHandler for the corresponding shift type
-        """
         shift_base = self._get_shift_base_name(group_name)
         
         if shift_base not in self.file_handlers:
@@ -305,26 +223,16 @@ class DiagnosisPredictor(TransformerPredictor):
         return self.file_handlers[shift_base]
 
     def predict_batch(self, batch_texts: List[str], note_ids: List[int], group_name: str):
-        """
-        Process a batch of texts with error handling
-        
-        Args:
-            batch_texts: List of texts to process
-            note_ids: List of note IDs
-            group_name: Name of the current group
-        """
         try:
             file_handler = self._get_file_handler(group_name)
             shift_type = self._get_shift_base_name(group_name)
             
             for note_id, sample in zip(note_ids, batch_texts):
-                # Use average aggregation to normalize attention by sub-token count
-                # This prevents bias where longer words (more sub-tokens) get artificially higher attention
                 attention_weights, words, logits = super().inference_from_texts(
                     sample,
                     layer_num=self.layer_num,
                     head_num=self.head_num,
-                    aggregation="average"  # Fixed: was "sum" which caused sub-token bias
+                    aggregation="average"
                 )
                 
                 diagnosis_probs = torch.sigmoid(logits).cpu().numpy().squeeze()
@@ -362,13 +270,6 @@ class DiagnosisPredictor(TransformerPredictor):
             raise PredictionError(f"Batch processing failed: {str(e)}")
 
     def predict_group(self, samples: List[str], group_name: str):
-        """
-        Process all samples in a group
-        
-        Args:
-            samples: List of samples to process
-            group_name: Name of the group
-        """
         if self.save_path is None:
             self.save_path = Path("predictions_default.csv")
             self.initialize_for_prediction(str(self.save_path))
@@ -397,18 +298,11 @@ class DiagnosisPredictor(TransformerPredictor):
                 self._save_checkpoint(self.save_path)
 
     def save_results(self, save_path: str):
-        """
-        Save all results and clean up resources
-        
-        Args:
-            save_path: Path to save results
-        """
         if not self.file_handlers:
             self.initialize_for_prediction(save_path)
-            
+
         try:
             self._save_checkpoint(self.save_path)
-            # Close all file handlers
             for handler in self.file_handlers.values():
                 handler.close_all()
             self.file_handlers.clear()

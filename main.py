@@ -16,7 +16,6 @@ from config_loader import get_config
 from logger import setup_logging, get_logger, log_experiment_info
 from statistical_analysis import StatisticalAnalyzer
 
-# Initialize logging
 setup_logging()
 logger = get_logger(__name__)
 
@@ -67,60 +66,34 @@ def run(
     random_seed: Optional[int] = None,
     run_statistical_analysis: bool = True
 ):
-    """
-    Run behavioral tests with specified shifts and predictor
-
-    Args:
-        test_set_path: Path to test dataset (uses config if not provided)
-        model_path: Path to model checkpoint (uses config if not provided)
-        shift_keys: Comma-separated string or list of shift names (all if not provided)
-        task: Name of prediction task
-        save_dir: Directory to save results (uses config if not provided)
-        gpu: Whether to use GPU (uses config if not provided)
-        batch_size: Batch size for predictions (uses config if not provided)
-        head_num: Attention head number to use (uses config if not provided)
-        layer_num: Model layer number to use (uses config if not provided)
-        code_label: Column name for codes in dataset
-        checkpoint_interval: Interval for saving checkpoints
-        config_path: Path to config file (uses default if not provided)
-        random_seed: Random seed for reproducibility (uses config if not provided)
-        run_statistical_analysis: Whether to run statistical analysis on results
-    """
+    """Run behavioral tests with specified shifts and predictor"""
     try:
-        # Load configuration
         config = get_config(config_path)
         logger.info("Configuration loaded successfully")
 
-        # Use config values as defaults
         test_set_path = parse_argument(test_set_path) if test_set_path else config.data.test_set_path
         model_path = parse_argument(model_path) if model_path else config.model.name
         save_dir = parse_argument(save_dir) if save_dir else config.output.results_dir
         task = parse_argument(task)
 
-        # Use config for model parameters
         gpu = gpu if gpu is not None else config.model.use_gpu
         batch_size = batch_size if batch_size is not None else config.model.batch_size
         head_num = head_num if head_num is not None else config.model.attention['head_num']
         layer_num = layer_num if layer_num is not None else config.model.attention['layer_num']
         random_seed = random_seed if random_seed is not None else config.random_seed
-
-        # Set random seeds for reproducibility
         if random_seed is not None:
             utils.set_random_seeds(random_seed)
             logger.info(f"Random seed set to {random_seed}")
 
-        # Configure deterministic mode if requested
         if config.deterministic:
             utils.configure_deterministic_mode()
             logger.info("Deterministic mode enabled")
 
-        # Parse shift keys
         if shift_keys:
             shift_keys = parse_shift_keys(shift_keys)
         else:
             shift_keys = ["neutralize", "pejorative", "laud", "neutralval"]
 
-        # Log experiment info
         log_experiment_info(logger, {
             "test_set_path": test_set_path,
             "model_path": model_path,
@@ -134,17 +107,14 @@ def run(
 
         logger.info(f"Running with shifts: {shift_keys}")
 
-        # Initialize shift map with random seed
         shift_map = get_shift_map(random_seed)
 
-        # Validate shift keys
         invalid_shifts = [s for s in shift_keys if s not in shift_map]
         if invalid_shifts:
             logger.error(f"Invalid shift keys: {invalid_shifts}")
             logger.error(f"Available shifts: {list(shift_map.keys())}")
             raise ValueError(f"Invalid shift keys: {invalid_shifts}")
 
-        # Initialize predictor and testing framework
         logger.info(f"Initializing {task} predictor...")
         predictor = TASK_MAP[task](
             checkpoint_path=model_path,
@@ -160,17 +130,14 @@ def run(
         logger.info("Initializing behavioral testing framework...")
         bt = BehavioralTesting(test_dataset_path=test_set_path)
 
-        # Create save directory if it doesn't exist
         os.makedirs(save_dir, exist_ok=True)
         logger.info(f"Results will be saved to: {save_dir}")
 
-        # Initialize statistical analyzer if requested
         analyzer = StatisticalAnalyzer() if run_statistical_analysis else None
 
-        # Run tests for each shift
         all_results = {}
         for shift_key in shift_keys:
-            if not shift_key:  # Skip empty strings
+            if not shift_key:
                 continue
 
             logger.info(f"Starting {shift_key} shift testing...")
@@ -178,7 +145,6 @@ def run(
             results_path = os.path.join(save_dir, f"{shift_key}_shift_{task}.csv")
             stats_path = os.path.join(save_dir, f"{shift_key}_shift_{task}_stats.txt")
 
-            # Run test and save results
             stats = bt.run_test(shift, predictor, results_path)
             utils.save_to_file(stats, stats_path)
             all_results[shift_key] = stats
@@ -187,19 +153,15 @@ def run(
             logger.info(f"Results saved to {results_path}")
             logger.info(f"Statistics saved to {stats_path}")
 
-        # Run statistical analysis if requested
         if run_statistical_analysis and analyzer:
             logger.info("Running comprehensive statistical analysis...")
 
             try:
-                # Load results from saved CSV files
                 results_data = {}
-
-                # Map shift keys to their file prefixes (handle naming variations)
                 shift_prefix_map = {
                     'neutralize': 'neutralize',
                     'pejorative': 'pejorative',
-                    'laud': 'laudatory',  # Note: laud is saved as laudatory
+                    'laud': 'laudatory',
                     'neutralval': 'neutralval'
                 }
 
@@ -207,24 +169,16 @@ def run(
                     if not shift_key:
                         continue
 
-                    # Get the actual file prefix
                     file_prefix = shift_prefix_map.get(shift_key, shift_key)
-
-                    # Use regex to match files with varying timestamps
-                    # Pattern: {prefix}_{YYYYMMDD}_{HHMMSS}_diagnosis.csv
-                    # Example: pejorative_20251231_120748_diagnosis.csv
                     regex_patterns = [
-                        rf"^{re.escape(file_prefix)}_\d{{8}}_\d{{6}}_diagnosis\.csv$",  # With timestamp
-                        rf"^{re.escape(shift_key)}_shift_diagnosis\.csv$",              # Without timestamp
-                        rf"^{re.escape(file_prefix)}_.*diagnosis\.csv$",                # Fallback
+                        rf"^{re.escape(file_prefix)}_\d{{8}}_\d{{6}}_diagnosis\.csv$",
+                        rf"^{re.escape(shift_key)}_shift_diagnosis\.csv$",
+                        rf"^{re.escape(file_prefix)}_.*diagnosis\.csv$",
                     ]
 
                     csv_file = None
-                    # List all files in save_dir
                     if os.path.exists(save_dir):
                         all_files = os.listdir(save_dir)
-
-                        # Try each regex pattern
                         for regex_pattern in regex_patterns:
                             for filename in all_files:
                                 if re.match(regex_pattern, filename):
@@ -237,14 +191,12 @@ def run(
                         logger.info(f"Loading results for {shift_key} from {csv_file}")
                         df = pd.read_csv(csv_file)
 
-                        # Convert all numeric columns from strings to floats
-                        # Diagnosis probability columns are often read as strings
                         for col in df.columns:
                             if col not in ['note_id', 'text', 'shifted_text', 'sample_id', 'group', 'attention_weights']:
                                 try:
                                     df[col] = pd.to_numeric(df[col], errors='coerce')
                                 except:
-                                    pass  # Skip columns that can't be converted
+                                    pass
 
                         results_data[shift_key] = df
                     else:
@@ -252,21 +204,14 @@ def run(
                         logger.warning(f"  Tried regex patterns: {regex_patterns}")
                         logger.warning(f"  In directory: {save_dir}")
 
-                # Perform comparative statistical analysis
                 if len(results_data) >= 2:
-                    # Use neutralize as baseline if available, otherwise use first shift
                     baseline_key = 'neutralize' if 'neutralize' in results_data else list(results_data.keys())[0]
                     baseline_data = results_data[baseline_key]
-
                     logger.info(f"Using {baseline_key} as baseline for comparisons")
 
-                    # Extract diagnosis codes from the data
-                    # Look for columns that represent diagnosis probabilities
                     diagnosis_cols = [col for col in baseline_data.columns
                                      if col not in ['note_id', 'text', 'shifted_text',
                                                    'sample_id', 'group', 'attention_weights']]
-
-                    # Filter to only numeric columns
                     diagnosis_cols = [col for col in diagnosis_cols
                                      if pd.api.types.is_numeric_dtype(baseline_data[col])]
 
@@ -275,11 +220,7 @@ def run(
                         logger.info("Skipping statistical analysis")
                     else:
                         logger.info(f"Found {len(diagnosis_cols)} diagnosis codes for analysis")
-
-                        # Prepare baseline diagnosis probabilities
-                        baseline_probs = baseline_data[diagnosis_cols].fillna(0)  # Fill NaN with 0
-
-                        # Compare each treatment shift against baseline
+                        baseline_probs = baseline_data[diagnosis_cols].fillna(0)
                         all_comparison_results = {}
 
                         for shift_key, shift_data in results_data.items():
@@ -287,18 +228,13 @@ def run(
                                 continue
 
                             logger.info(f"Analyzing {shift_key} vs {baseline_key}...")
+                            treatment_probs = shift_data[diagnosis_cols].fillna(0)
 
-                            # Extract treatment diagnosis probabilities
-                            treatment_probs = shift_data[diagnosis_cols].fillna(0)  # Fill NaN with 0
-
-                            # Ensure same number of samples
                             min_samples = min(len(baseline_probs), len(treatment_probs))
                             baseline_probs_aligned = baseline_probs.iloc[:min_samples]
                             treatment_probs_aligned = treatment_probs.iloc[:min_samples]
-
                             logger.info(f"Comparing {min_samples} samples across {len(diagnosis_cols)} diagnosis codes")
 
-                            # Run comprehensive statistical analysis
                             comparison_results = analyzer.analyze_diagnosis_shifts(
                                 baseline_probs=baseline_probs_aligned,
                                 treatment_probs=treatment_probs_aligned,
@@ -309,8 +245,6 @@ def run(
                             )
 
                             all_comparison_results[shift_key] = comparison_results
-
-                            # Save detailed results for this comparison
                             comparison_csv_path = os.path.join(
                                 save_dir,
                                 f"statistical_analysis_{baseline_key}_vs_{shift_key}.csv"
@@ -318,22 +252,21 @@ def run(
                             comparison_results.to_csv(comparison_csv_path, index=False)
                             logger.info(f"Saved detailed comparison to {comparison_csv_path}")
 
-                        # Generate comprehensive analysis report
-                        report_lines = []
-                        report_lines.append("=" * 80)
-                        report_lines.append("COMPREHENSIVE STATISTICAL ANALYSIS")
-                        report_lines.append("Clinical Valence Testing - Diagnosis Prediction Shifts")
-                        report_lines.append("=" * 80)
-                        report_lines.append("")
-                        report_lines.append(f"Baseline: {baseline_key}")
-                        report_lines.append(f"Comparisons: {', '.join([k for k in results_data.keys() if k != baseline_key])}")
-                        report_lines.append(f"Number of samples: {len(baseline_data)}")
-                        report_lines.append(f"Number of diagnosis codes analyzed: {len(diagnosis_cols)}")
-                        report_lines.append(f"Significance level: {analyzer.significance_level}")
-                        report_lines.append(f"Multiple comparison correction: {analyzer.correction_method}")
-                        report_lines.append("")
+                        report_lines = [
+                            "=" * 80,
+                            "COMPREHENSIVE STATISTICAL ANALYSIS",
+                            "Clinical Valence Testing - Diagnosis Prediction Shifts",
+                            "=" * 80,
+                            "",
+                            f"Baseline: {baseline_key}",
+                            f"Comparisons: {', '.join([k for k in results_data.keys() if k != baseline_key])}",
+                            f"Number of samples: {len(baseline_data)}",
+                            f"Number of diagnosis codes analyzed: {len(diagnosis_cols)}",
+                            f"Significance level: {analyzer.significance_level}",
+                            f"Multiple comparison correction: {analyzer.correction_method}",
+                            ""
+                        ]
 
-                        # Generate report for each comparison
                         for shift_key, comparison_results in all_comparison_results.items():
                             report = analyzer.generate_analysis_report(
                                 diagnosis_results=comparison_results,
@@ -346,7 +279,6 @@ def run(
                             report_lines.append("=" * 80)
                             report_lines.append(report)
 
-                        # Save comprehensive report
                         report_path = os.path.join(save_dir, "statistical_analysis.txt")
                         with open(report_path, 'w') as f:
                             f.write('\n'.join(report_lines))
