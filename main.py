@@ -186,16 +186,9 @@ def run(
 
         # Run statistical analysis if requested
         if run_statistical_analysis and analyzer:
-            logger.info("Running statistical analysis...")
-            analysis_path = os.path.join(save_dir, "statistical_analysis.txt")
-
-            try:
-                # Generate comprehensive statistical report
-                report = analyzer.generate_analysis_report(all_results)
-                utils.save_to_file(report, analysis_path)
-                logger.info(f"Statistical analysis saved to {analysis_path}")
-            except Exception as e:
-                logger.error(f"Error during statistical analysis: {e}")
+            logger.info("Statistical analysis not yet fully implemented")
+            logger.info("TODO: Implement proper integration with StatisticalAnalyzer")
+            logger.info("This requires collecting diagnosis predictions as DataFrames")
 
         logger.info("All behavioral tests completed successfully!")
         return all_results

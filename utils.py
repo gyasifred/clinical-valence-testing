@@ -369,7 +369,7 @@ def sample_to_features(
         "input_ids": tokenized["input_ids"],
         "attention_mask": tokenized["attention_mask"],
         "token_type_ids": tokenized["token_type_ids"],
-        "tokens": tokenized.encodings[0].tokens,
+        "tokens": tokenizer.convert_ids_to_tokens(tokenized["input_ids"]),
         "target": sample[label_column]
     }
 

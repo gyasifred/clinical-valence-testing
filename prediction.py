@@ -13,17 +13,17 @@ from datetime import datetime
 import os
 import threading
 from contextlib import contextmanager
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 @dataclass
 class PredictionState:
     """Tracks the state of prediction progress for checkpointing"""
     current_group: str
-    shift_type: str 
+    shift_type: str
     processed_samples: int
     total_samples: int
     last_note_id: int
-    timestamp: str = datetime.now().isoformat()
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self):
         return asdict(self)
@@ -366,8 +366,8 @@ class DiagnosisPredictor(TransformerPredictor):
         for start_idx in tqdm(range(0, num_samples, batch_size)):
             end_idx = min(start_idx + batch_size, num_samples)
             batch_samples = samples[start_idx:end_idx]
-            note_ids = range(start_idx, end_idx)
-            
+            note_ids = list(range(start_idx, end_idx))
+
             self.predict_batch(batch_samples, note_ids, group_name)
             self.current_state.processed_samples += len(batch_samples)
             self.current_state.last_note_id = note_ids[-1]
