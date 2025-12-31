@@ -85,7 +85,7 @@ Run all shifts with default configuration:
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction
 ```
 
 This will:
@@ -118,7 +118,7 @@ Edit `config.yaml` to match your setup:
 ```yaml
 # Model Configuration
 model:
-  name: "bvanaken/CORe-clinical-outcome-biobert-v1"  # Or your model path
+  name: "DATEXIS/CORe-clinical-diagnosis-prediction"  # Pre-trained ICD classifier
   batch_size: 768  # Optimized for H100 NVL (95GB); reduce to 512 for H100 SXM/PCIe (80GB)
   use_gpu: true
   device: "cuda"
