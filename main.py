@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os
+import glob
 from typing import Union, Optional
 import fire
+import pandas as pd
 import utils
 from valence_testing import BehavioralTesting
 from prediction import DiagnosisPredictor
@@ -186,9 +188,127 @@ def run(
 
         # Run statistical analysis if requested
         if run_statistical_analysis and analyzer:
-            logger.info("Statistical analysis not yet fully implemented")
-            logger.info("TODO: Implement proper integration with StatisticalAnalyzer")
-            logger.info("This requires collecting diagnosis predictions as DataFrames")
+            logger.info("Running comprehensive statistical analysis...")
+
+            try:
+                # Load results from saved CSV files
+                results_data = {}
+                diagnosis_file_pattern = "*_diagnosis.csv"
+
+                for shift_key in shift_keys:
+                    if not shift_key:
+                        continue
+
+                    # Look for diagnosis CSV files for this shift
+                    pattern = os.path.join(save_dir, f"*{shift_key.split('_')[0]}*diagnosis.csv")
+                    matching_files = glob.glob(pattern)
+
+                    if matching_files:
+                        csv_file = matching_files[0]  # Use first match
+                        logger.info(f"Loading results for {shift_key} from {csv_file}")
+                        results_data[shift_key] = pd.read_csv(csv_file)
+                    else:
+                        logger.warning(f"No diagnosis CSV found for {shift_key}")
+
+                # Perform comparative statistical analysis
+                if len(results_data) >= 2:
+                    # Use neutralize as baseline if available, otherwise use first shift
+                    baseline_key = 'neutralize' if 'neutralize' in results_data else list(results_data.keys())[0]
+                    baseline_data = results_data[baseline_key]
+
+                    logger.info(f"Using {baseline_key} as baseline for comparisons")
+
+                    # Extract diagnosis codes from the data
+                    # Look for columns that represent diagnosis probabilities
+                    diagnosis_cols = [col for col in baseline_data.columns
+                                     if col not in ['note_id', 'text', 'shifted_text',
+                                                   'sample_id', 'group', 'attention_weights']]
+
+                    if not diagnosis_cols:
+                        logger.warning("No diagnosis probability columns found in CSV")
+                        logger.info("Skipping statistical analysis")
+                    else:
+                        logger.info(f"Found {len(diagnosis_cols)} diagnosis codes for analysis")
+
+                        # Prepare baseline diagnosis probabilities
+                        baseline_probs = baseline_data[diagnosis_cols]
+
+                        # Compare each treatment shift against baseline
+                        all_comparison_results = {}
+
+                        for shift_key, shift_data in results_data.items():
+                            if shift_key == baseline_key:
+                                continue
+
+                            logger.info(f"Analyzing {shift_key} vs {baseline_key}...")
+
+                            # Extract treatment diagnosis probabilities
+                            treatment_probs = shift_data[diagnosis_cols]
+
+                            # Run comprehensive statistical analysis
+                            comparison_results = analyzer.analyze_diagnosis_shifts(
+                                baseline_probs=baseline_probs,
+                                treatment_probs=treatment_probs,
+                                diagnosis_codes=diagnosis_cols,
+                                use_permutation=True,
+                                n_permutations=10000,
+                                random_seed=config.random_seed if hasattr(config, 'random_seed') else 42
+                            )
+
+                            all_comparison_results[shift_key] = comparison_results
+
+                            # Save detailed results for this comparison
+                            comparison_csv_path = os.path.join(
+                                save_dir,
+                                f"statistical_analysis_{baseline_key}_vs_{shift_key}.csv"
+                            )
+                            comparison_results.to_csv(comparison_csv_path, index=False)
+                            logger.info(f"Saved detailed comparison to {comparison_csv_path}")
+
+                        # Generate comprehensive analysis report
+                        report_lines = []
+                        report_lines.append("=" * 80)
+                        report_lines.append("COMPREHENSIVE STATISTICAL ANALYSIS")
+                        report_lines.append("Clinical Valence Testing - Diagnosis Prediction Shifts")
+                        report_lines.append("=" * 80)
+                        report_lines.append("")
+                        report_lines.append(f"Baseline: {baseline_key}")
+                        report_lines.append(f"Comparisons: {', '.join([k for k in results_data.keys() if k != baseline_key])}")
+                        report_lines.append(f"Number of samples: {len(baseline_data)}")
+                        report_lines.append(f"Number of diagnosis codes analyzed: {len(diagnosis_cols)}")
+                        report_lines.append(f"Significance level: {analyzer.significance_level}")
+                        report_lines.append(f"Multiple comparison correction: {analyzer.correction_method}")
+                        report_lines.append("")
+
+                        # Generate report for each comparison
+                        for shift_key, comparison_results in all_comparison_results.items():
+                            report = analyzer.generate_analysis_report(
+                                diagnosis_results=comparison_results,
+                                attention_results=None
+                            )
+
+                            report_lines.append("")
+                            report_lines.append("=" * 80)
+                            report_lines.append(f"COMPARISON: {baseline_key} vs {shift_key}")
+                            report_lines.append("=" * 80)
+                            report_lines.append(report)
+
+                        # Save comprehensive report
+                        report_path = os.path.join(save_dir, "statistical_analysis.txt")
+                        with open(report_path, 'w') as f:
+                            f.write('\n'.join(report_lines))
+
+                        logger.info(f"Comprehensive statistical analysis report saved to {report_path}")
+                        logger.info("Statistical analysis completed successfully!")
+
+                else:
+                    logger.warning(f"Need at least 2 shifts for statistical comparison, found {len(results_data)}")
+                    logger.info("Skipping statistical analysis")
+
+            except Exception as e:
+                logger.error(f"Error during statistical analysis: {e}", exc_info=True)
+                logger.warning("Statistical analysis failed, but behavioral testing results are still saved")
+
 
         logger.info("All behavioral tests completed successfully!")
         return all_results
