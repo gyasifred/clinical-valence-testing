@@ -67,7 +67,7 @@ Or run manually with custom parameters:
 # Basic run with all shifts
 python main.py \
   --test_set_path ./data/DIA_GROUPS_3_DIGITS_adm_test.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --shift_keys neutralize,pejorative,laud,neutralval \
   --task diagnosis \
   --save_dir ./results \
@@ -77,7 +77,7 @@ python main.py \
 # Run with H100 NVL GPU acceleration (95GB memory)
 python main.py \
   --test_set_path ./data/DIA_GROUPS_3_DIGITS_adm_test.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --shift_keys neutralize,pejorative,laud,neutralval \
   --task diagnosis \
   --save_dir ./results \
@@ -89,7 +89,7 @@ python main.py \
 # Run specific shifts only
 python main.py \
   --test_set_path ./data/DIA_GROUPS_3_DIGITS_adm_test.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --shift_keys pejorative,laud \
   --task diagnosis \
   --save_dir ./results/valence_only \

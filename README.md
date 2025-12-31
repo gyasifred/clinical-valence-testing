@@ -150,7 +150,7 @@ deterministic: true
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --save_dir ./results
 ```
 
@@ -158,7 +158,7 @@ python main.py \
 1. Configuration loaded from `config.yaml`
 2. Random seed set to 42 (reproducible results)
 3. All four shifts initialized (neutralize, pejorative, laud, neutralval)
-4. Model loaded: `bvanaken/CORe-clinical-outcome-biobert-v1`
+4. Model loaded: `DATEXIS/CORe-clinical-diagnosis-prediction`
 5. Behavioral testing runs for each shift:
    - Original samples loaded
    - Text perturbations applied
@@ -190,7 +190,7 @@ To run only specific shifts:
 # Test only pejorative language impact
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --shift_keys pejorative \
   --save_dir ./results/pejorative_only
 ```
@@ -199,7 +199,7 @@ python main.py \
 # Test pejorative and laudatory shifts
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --shift_keys pejorative,laud \
   --save_dir ./results/valence_comparison
 ```
@@ -210,7 +210,7 @@ python main.py \
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --gpu true \
   --batch_size 768
 ```
@@ -219,7 +219,7 @@ python main.py \
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --gpu true \
   --batch_size 512
 ```
@@ -228,7 +228,7 @@ python main.py \
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --gpu false \
   --batch_size 32
 ```
@@ -240,7 +240,7 @@ Analyze different attention heads and layers:
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --layer_num 9 \
   --head_num 5
 ```
@@ -295,7 +295,7 @@ The statistical analysis runs automatically, but you can customize it:
 # Run without statistical analysis (faster)
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --run_statistical_analysis false
 ```
 
@@ -313,7 +313,7 @@ For exact reproducibility:
 ```bash
 python main.py \
   --test_set_path ./data/test_set.csv \
-  --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
   --random_seed 123
 ```
 
@@ -523,7 +523,7 @@ def get_shift_map(random_seed=None):
 for dataset in dataset1.csv dataset2.csv dataset3.csv; do
     python main.py \
       --test_set_path ./data/$dataset \
-      --model_path bvanaken/CORe-clinical-outcome-biobert-v1 \
+      --model_path DATEXIS/CORe-clinical-diagnosis-prediction \
       --save_dir ./results/${dataset%.csv}
 done
 ```
