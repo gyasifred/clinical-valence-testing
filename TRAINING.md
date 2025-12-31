@@ -1,20 +1,35 @@
 # ICD Code Classification - Model Training Guide
 
-## Overview
+## ⚠️ IMPORTANT: Pre-Trained Model Available
 
-This guide explains how to train a BioBERT model for ICD code classification on MIMIC-III data. The trained model can then be used for clinical valence testing.
+**You DO NOT need to train the model!** The `DATEXIS/CORe-clinical-diagnosis-prediction` model is **already trained** on MIMIC-III ICD codes.
 
-## Why Training is Needed
+This guide is for **advanced users** who want to:
+- Fine-tune on custom datasets
+- Experiment with different architectures
+- Train on additional ICD codes
 
-The base `bvanaken/CORe-clinical-outcome-biobert-v1` model is a **pre-trained language model**, NOT a trained ICD classifier. You need to:
+## Using the Pre-Trained Model (Recommended)
 
-1. **Fine-tune the model** on your MIMIC dataset with all 1,266 ICD codes
-2. **Save the trained checkpoint** with proper label mappings
-3. **Use the trained model** for behavioral testing
+Simply use the model directly:
+
+```bash
+./run_analysis.sh  # Uses DATEXIS/CORe-clinical-diagnosis-prediction by default
+```
+
+## Training Your Own Model (Advanced)
+
+The base `DATEXIS/CORe-clinical-diagnosis-prediction` model is a **fully trained ICD classifier**. Only train if you need to:
+
+1. **Fine-tune on custom data** with different ICD code distributions
+2. **Add new ICD codes** not in the original training set
+3. **Experiment with different model architectures**
 
 ## Quick Start
 
-### Option 1: Automated Training (Recommended)
+### Option 1: Automated Training
+
+⚠️ **Note:** The pre-trained `DATEXIS/CORe-clinical-diagnosis-prediction` model already works for MIMIC-III data. Only use this if you need custom training.
 
 ```bash
 ./run_training.sh
@@ -33,6 +48,7 @@ python train.py \
   --train_path ./data/DIA_GROUPS_3_DIGITS_adm_train.csv \
   --val_path ./data/DIA_GROUPS_3_DIGITS_adm_val.csv \
   --output_dir ./models/icd_classifier \
+  --base_model DATEXIS/CORe-clinical-diagnosis-prediction \
   --batch_size 32 \
   --num_epochs 5
 ```
@@ -123,7 +139,7 @@ python train.py \
   --train_path ./data/train.csv \
   --val_path ./data/val.csv \
   --output_dir ./models/custom_model \
-  --base_model bvanaken/CORe-clinical-outcome-biobert-v1 \
+  --base_model DATEXIS/CORe-clinical-diagnosis-prediction \
   --num_epochs 10 \
   --batch_size 16 \
   --learning_rate 3e-5 \

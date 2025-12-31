@@ -2,7 +2,11 @@
 ################################################################################
 # ICD Code Classification - Training Script
 ################################################################################
-# This script trains a BioBERT model for ICD code classification on MIMIC data
+# ⚠️ IMPORTANT: The DATEXIS/CORe-clinical-diagnosis-prediction model is
+# ALREADY TRAINED on MIMIC-III ICD codes. You do NOT need to run this script
+# unless you want to fine-tune on custom data or experiment with training.
+#
+# For normal use, just run: ./run_analysis.sh
 ################################################################################
 
 set -e
@@ -18,12 +22,16 @@ echo -e "${BLUE}================================================================
 echo -e "${BLUE}ICD Code Classification - Model Training${NC}"
 echo -e "${BLUE}================================================================================================${NC}"
 echo ""
+echo -e "${YELLOW}⚠️  IMPORTANT: The DATEXIS/CORe-clinical-diagnosis-prediction model is${NC}"
+echo -e "${YELLOW}   ALREADY TRAINED on MIMIC-III ICD codes. You likely don't need this!${NC}"
+echo -e "${YELLOW}   Only continue if you want to fine-tune on custom data.${NC}"
+echo ""
 
 # Configuration
 TRAIN_DATA="./data/DIA_GROUPS_3_DIGITS_adm_train.csv"
 VAL_DATA="./data/DIA_GROUPS_3_DIGITS_adm_val.csv"
 OUTPUT_DIR="./models/icd_classifier"
-BASE_MODEL="bvanaken/CORe-clinical-outcome-biobert-v1"
+BASE_MODEL="DATEXIS/CORe-clinical-diagnosis-prediction"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # Check if training data exists
