@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelConfig:
-    name: str = "bvanaken/CORe-clinical-outcome-biobert-v1"
+    name: str = "DATEXIS/CORe-clinical-diagnosis-prediction"
     max_length: int = 512
     batch_size: int = 128
     device: str = "auto"
