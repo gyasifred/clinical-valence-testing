@@ -90,15 +90,20 @@ class StatisticalAnalyzer:
             paired: Whether groups are paired
 
         Returns:
-            Cohen's d effect size
+            Cohen's d effect size (returns 0.0 if std is zero)
         """
         if paired:
             diff = group1 - group2
-            return np.mean(diff) / np.std(diff, ddof=1)
+            std_diff = np.std(diff, ddof=1)
+            if std_diff == 0 or np.isnan(std_diff):
+                return 0.0  # No variance, effect size is zero
+            return np.mean(diff) / std_diff
         else:
             n1, n2 = len(group1), len(group2)
             var1, var2 = np.var(group1, ddof=1), np.var(group2, ddof=1)
             pooled_std = np.sqrt(((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2))
+            if pooled_std == 0 or np.isnan(pooled_std):
+                return 0.0  # No variance, effect size is zero
             return (np.mean(group1) - np.mean(group2)) / pooled_std
 
     def hedges_g(
@@ -813,7 +818,10 @@ class StatisticalAnalyzer:
 
             if len(sig_diagnoses) > 0:
                 report_lines.append("Top 10 most affected diagnoses (t-test):")
-                top_diagnoses = sig_diagnoses.nlargest(10, 'mean_shift', key=abs)
+                # Create abs column for sorting (nlargest doesn't support key parameter)
+                sig_diagnoses_copy = sig_diagnoses.copy()
+                sig_diagnoses_copy['abs_mean_shift'] = sig_diagnoses_copy['mean_shift'].abs()
+                top_diagnoses = sig_diagnoses_copy.nlargest(10, 'abs_mean_shift')
 
                 for _, row in top_diagnoses.iterrows():
                     effect_interp = self.effect_size_interpretation(row['cohens_d'])
@@ -833,7 +841,10 @@ class StatisticalAnalyzer:
 
             if len(sig_diagnoses_perm) > 0:
                 report_lines.append("Top 10 most affected diagnoses (permutation test):")
-                top_diagnoses_perm = sig_diagnoses_perm.nlargest(10, 'mean_shift', key=abs)
+                # Create abs column for sorting (nlargest doesn't support key parameter)
+                sig_diagnoses_perm_copy = sig_diagnoses_perm.copy()
+                sig_diagnoses_perm_copy['abs_mean_shift'] = sig_diagnoses_perm_copy['mean_shift'].abs()
+                top_diagnoses_perm = sig_diagnoses_perm_copy.nlargest(10, 'abs_mean_shift')
 
                 for _, row in top_diagnoses_perm.iterrows():
                     effect_interp = self.effect_size_interpretation(row['cohens_d'])

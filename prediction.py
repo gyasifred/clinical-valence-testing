@@ -219,20 +219,20 @@ class DiagnosisPredictor(TransformerPredictor):
     def _get_shift_base_name(self, group_name: str) -> str:
         """
         Extract base shift name from group name
-        
+
         Args:
             group_name: Name of the current group
-            
+
         Returns:
             Base shift type name
         """
         shift_types = {
-            "pejorative": ["non_compliant","uncooperative","resistant","difficult"],
-            "laudatory": ["compliant", "cooperative","pleasant","respectful"],
-            "neutralize": ["no_mention"],
-            "neutralval": ["neutral"]
+            "pejorative": ["non_compliant","uncooperative","resistant","difficult", "pejorative"],
+            "laudatory": ["compliant", "cooperative","pleasant","respectful", "laudatory"],
+            "neutralize": ["no_mention", "neutralized"],  # FIX: Added "neutralized"
+            "neutralval": ["neutral", "neutralval"]
         }
-        
+
         for base_name, variants in shift_types.items():
             if any(variant in group_name.lower() for variant in variants):
                 return base_name
