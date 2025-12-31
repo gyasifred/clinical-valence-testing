@@ -189,6 +189,24 @@ class DiagnosisPredictor(TransformerPredictor):
             n=100, dataset_path=test_set_path, code_label=code_label
         )
         self.label_list = list(self.model.config.label2id.keys())
+
+        # Check for model-data mismatch
+        missing_codes = [code for code in self.code_filter if code not in self.label_list]
+        if missing_codes:
+            logger.error(f"Model-data mismatch detected!")
+            logger.error(f"The model has {len(self.label_list)} labels but the dataset needs {len(self.code_filter)} codes")
+            logger.error(f"Missing codes (first 10): {missing_codes[:10]}")
+            logger.error(f"\nThe model at '{checkpoint_path}' is not trained for ICD code prediction.")
+            logger.error(f"You need to either:")
+            logger.error(f"  1. Provide a path to a TRAINED model checkpoint with all {len(self.code_filter)} ICD codes")
+            logger.error(f"  2. Train the model first on your ICD code dataset")
+            logger.error(f"  3. Use a pre-trained checkpoint that includes all MIMIC ICD codes")
+            raise ValueError(
+                f"Model missing {len(missing_codes)}/{len(self.code_filter)} required ICD codes. "
+                f"First missing code: '{missing_codes[0]}'. "
+                f"This model appears to be a base BioBERT model, not a trained ICD classifier."
+            )
+
         self.label_list_filter = [self.label_list.index(label) for label in self.code_filter]
         self.file_handlers = {}
         self.current_state = None
