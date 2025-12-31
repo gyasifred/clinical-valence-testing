@@ -193,22 +193,52 @@ def run(
             try:
                 # Load results from saved CSV files
                 results_data = {}
-                diagnosis_file_pattern = "*_diagnosis.csv"
+
+                # Map shift keys to their file prefixes (handle naming variations)
+                shift_prefix_map = {
+                    'neutralize': 'neutralize',
+                    'pejorative': 'pejorative',
+                    'laud': 'laudatory',  # Note: laud is saved as laudatory
+                    'neutralval': 'neutralval'
+                }
 
                 for shift_key in shift_keys:
                     if not shift_key:
                         continue
 
-                    # Look for diagnosis CSV files for this shift
-                    pattern = os.path.join(save_dir, f"*{shift_key.split('_')[0]}*diagnosis.csv")
-                    matching_files = glob.glob(pattern)
+                    # Get the actual file prefix
+                    file_prefix = shift_prefix_map.get(shift_key, shift_key)
 
-                    if matching_files:
-                        csv_file = matching_files[0]  # Use first match
+                    # Try multiple file naming patterns
+                    patterns = [
+                        os.path.join(save_dir, f"{file_prefix}_*_diagnosis.csv"),  # e.g., pejorative_20251231_120748_diagnosis.csv
+                        os.path.join(save_dir, f"{shift_key}_shift_diagnosis.csv"),  # e.g., neutralize_shift_diagnosis.csv
+                        os.path.join(save_dir, f"*{file_prefix}*diagnosis.csv"),  # Wildcard match
+                    ]
+
+                    csv_file = None
+                    for pattern in patterns:
+                        matching_files = glob.glob(pattern)
+                        if matching_files:
+                            csv_file = matching_files[0]  # Use first match
+                            break
+
+                    if csv_file:
                         logger.info(f"Loading results for {shift_key} from {csv_file}")
-                        results_data[shift_key] = pd.read_csv(csv_file)
+                        df = pd.read_csv(csv_file)
+
+                        # Convert all numeric columns from strings to floats
+                        # Diagnosis probability columns are often read as strings
+                        for col in df.columns:
+                            if col not in ['note_id', 'text', 'shifted_text', 'sample_id', 'group', 'attention_weights']:
+                                try:
+                                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                                except:
+                                    pass  # Skip columns that can't be converted
+
+                        results_data[shift_key] = df
                     else:
-                        logger.warning(f"No diagnosis CSV found for {shift_key}")
+                        logger.warning(f"No diagnosis CSV found for {shift_key} (tried patterns: {patterns})")
 
                 # Perform comparative statistical analysis
                 if len(results_data) >= 2:
@@ -224,14 +254,18 @@ def run(
                                      if col not in ['note_id', 'text', 'shifted_text',
                                                    'sample_id', 'group', 'attention_weights']]
 
+                    # Filter to only numeric columns
+                    diagnosis_cols = [col for col in diagnosis_cols
+                                     if pd.api.types.is_numeric_dtype(baseline_data[col])]
+
                     if not diagnosis_cols:
-                        logger.warning("No diagnosis probability columns found in CSV")
+                        logger.warning("No numeric diagnosis probability columns found in CSV")
                         logger.info("Skipping statistical analysis")
                     else:
                         logger.info(f"Found {len(diagnosis_cols)} diagnosis codes for analysis")
 
                         # Prepare baseline diagnosis probabilities
-                        baseline_probs = baseline_data[diagnosis_cols]
+                        baseline_probs = baseline_data[diagnosis_cols].fillna(0)  # Fill NaN with 0
 
                         # Compare each treatment shift against baseline
                         all_comparison_results = {}
@@ -243,12 +277,19 @@ def run(
                             logger.info(f"Analyzing {shift_key} vs {baseline_key}...")
 
                             # Extract treatment diagnosis probabilities
-                            treatment_probs = shift_data[diagnosis_cols]
+                            treatment_probs = shift_data[diagnosis_cols].fillna(0)  # Fill NaN with 0
+
+                            # Ensure same number of samples
+                            min_samples = min(len(baseline_probs), len(treatment_probs))
+                            baseline_probs_aligned = baseline_probs.iloc[:min_samples]
+                            treatment_probs_aligned = treatment_probs.iloc[:min_samples]
+
+                            logger.info(f"Comparing {min_samples} samples across {len(diagnosis_cols)} diagnosis codes")
 
                             # Run comprehensive statistical analysis
                             comparison_results = analyzer.analyze_diagnosis_shifts(
-                                baseline_probs=baseline_probs,
-                                treatment_probs=treatment_probs,
+                                baseline_probs=baseline_probs_aligned,
+                                treatment_probs=treatment_probs_aligned,
                                 diagnosis_codes=diagnosis_cols,
                                 use_permutation=True,
                                 n_permutations=10000,
