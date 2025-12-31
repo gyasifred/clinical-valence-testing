@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import glob
+import re
 from typing import Union, Optional
 import fire
 import pandas as pd
@@ -209,19 +210,28 @@ def run(
                     # Get the actual file prefix
                     file_prefix = shift_prefix_map.get(shift_key, shift_key)
 
-                    # Try multiple file naming patterns
-                    patterns = [
-                        os.path.join(save_dir, f"{file_prefix}_*_diagnosis.csv"),  # e.g., pejorative_20251231_120748_diagnosis.csv
-                        os.path.join(save_dir, f"{shift_key}_shift_diagnosis.csv"),  # e.g., neutralize_shift_diagnosis.csv
-                        os.path.join(save_dir, f"*{file_prefix}*diagnosis.csv"),  # Wildcard match
+                    # Use regex to match files with varying timestamps
+                    # Pattern: {prefix}_{YYYYMMDD}_{HHMMSS}_diagnosis.csv
+                    # Example: pejorative_20251231_120748_diagnosis.csv
+                    regex_patterns = [
+                        rf"^{re.escape(file_prefix)}_\d{{8}}_\d{{6}}_diagnosis\.csv$",  # With timestamp
+                        rf"^{re.escape(shift_key)}_shift_diagnosis\.csv$",              # Without timestamp
+                        rf"^{re.escape(file_prefix)}_.*diagnosis\.csv$",                # Fallback
                     ]
 
                     csv_file = None
-                    for pattern in patterns:
-                        matching_files = glob.glob(pattern)
-                        if matching_files:
-                            csv_file = matching_files[0]  # Use first match
-                            break
+                    # List all files in save_dir
+                    if os.path.exists(save_dir):
+                        all_files = os.listdir(save_dir)
+
+                        # Try each regex pattern
+                        for regex_pattern in regex_patterns:
+                            for filename in all_files:
+                                if re.match(regex_pattern, filename):
+                                    csv_file = os.path.join(save_dir, filename)
+                                    break
+                            if csv_file:
+                                break
 
                     if csv_file:
                         logger.info(f"Loading results for {shift_key} from {csv_file}")
@@ -238,7 +248,9 @@ def run(
 
                         results_data[shift_key] = df
                     else:
-                        logger.warning(f"No diagnosis CSV found for {shift_key} (tried patterns: {patterns})")
+                        logger.warning(f"No diagnosis CSV found for {shift_key}")
+                        logger.warning(f"  Tried regex patterns: {regex_patterns}")
+                        logger.warning(f"  In directory: {save_dir}")
 
                 # Perform comparative statistical analysis
                 if len(results_data) >= 2:
