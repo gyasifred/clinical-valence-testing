@@ -2,7 +2,7 @@
 
 # Model configuration
 model:
-  name: "bvanaken/CORe-clinical-outcome-biobert-v1"
+  name: "DATEXIS/CORe-clinical-diagnosis-prediction"
   max_length: 512
   batch_size: 768  # Optimized for H100 NVL (95GB memory). Reduce to 512 if OOM errors occur
   use_gpu: true  # Set to false if no GPU available
