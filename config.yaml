@@ -16,6 +16,10 @@ model:
 
 # Data configuration
 data:
+  # Training data (if you need to train the model)
+  train_set_path: "./data/DIA_GROUPS_3_DIGITS_adm_train.csv"
+  val_set_path: "./data/DIA_GROUPS_3_DIGITS_adm_val.csv"
+  # Test data (for behavioral testing)
   test_set_path: "./data/DIA_GROUPS_3_DIGITS_adm_test.csv"
   code_label: "short_codes"
   text_label: "text"
