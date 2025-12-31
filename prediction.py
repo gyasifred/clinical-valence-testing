@@ -14,6 +14,9 @@ import os
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, asdict, field
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 @dataclass
 class PredictionState:

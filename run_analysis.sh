@@ -28,7 +28,7 @@ echo ""
 # Configuration
 TEST_DATA="./data/DIA_GROUPS_3_DIGITS_adm_test.csv"
 DIAGNOSIS_CODES="./data/ALL_3_DIGIT_DIA_CODES.txt"
-MODEL_PATH="bvanaken/CORe-clinical-outcome-biobert-v1"
+MODEL_PATH="DATEXIS/CORe-clinical-diagnosis-prediction"
 RESULTS_DIR="./results"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 RESULTS_SUBDIR="${RESULTS_DIR}/run_${TIMESTAMP}"
