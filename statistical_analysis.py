@@ -1,735 +1,1152 @@
-"""Statistical Analysis Module for Clinical Valence Testing."""
+#!/usr/bin/env python3
+"""
+analyze_valence_results.py
+==========================
+Standalone statistical analysis script for Clinical Valence Behavioral Testing.
+
+Reads prediction CSVs produced by main.py, runs all statistical comparisons
+between the neutralized baseline and each valence shift condition, generates
+publication-quality figures, and writes a structured summary report.
+
+Usage
+-----
+python analyze_valence_results.py \
+    --results_dir ./results \
+    --baseline_key neutralize \
+    --n_permutations 10000 \
+    --alpha 0.05 \
+    --correction fdr_bh \
+    --output_dir ./results/analysis
+
+Research Questions Addressed
+-----------------------------
+RQ1: Pejorative shift — do negative descriptors alter ICD-9 predictions?
+RQ2: Laudatory shift — do positive descriptors alter ICD-9 predictions?
+RQ3: Neutral valence shift — do neutral descriptors alter ICD-9 predictions?
+RQ4: Cross-condition asymmetry — do pejorative and laudatory shift in opposite directions?
+RQ5: Attention — do attention weights on valence terms shift across conditions?
+
+Statistical Methods (Yeh 2000; Heider 2023)
+--------------------------------------------
+- Primary: Paired permutation test (approximate randomization, T=10,000)
+- Supplementary: Paired t-test, Wilcoxon signed-rank test
+- Effect size: Cohen's d, Hedges' g
+- CI: Bootstrap 95% CI (B=5,000)
+- Correction: Benjamini-Hochberg FDR (Benjamini & Hochberg 1995)
+"""
+
+import os
+import re
+import sys
+import glob
+import argparse
+import logging
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from scipy import stats
-from scipy.stats import ttest_rel, wilcoxon, mannwhitneyu, chi2_contingency
+from scipy.stats import ttest_rel, wilcoxon
 from statsmodels.stats.multitest import multipletests
-from typing import Dict, List, Tuple, Optional, Union
-import logging
-from dataclasses import dataclass
-from pathlib import Path
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import seaborn as sns
 
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+NON_CODE_COLS = {
+    "NoteID", "Valence", "Val_class", "text", "shifted_text",
+    "sample_id", "group", "attention_weights",
+}
 
-@dataclass
-class StatisticalTestResult:
-    test_name: str
-    statistic: float
-    p_value: float
-    significant: bool
-    effect_size: Optional[float] = None
-    confidence_interval: Optional[Tuple[float, float]] = None
-    additional_info: Optional[Dict] = None
+# ICD-9 chapter boundaries for annotation
+ICD9_CHAPTERS = {
+    (1,   139): "Infectious & Parasitic",
+    (140, 239): "Neoplasms",
+    (240, 279): "Endocrine / Metabolic",
+    (280, 289): "Blood",
+    (290, 319): "Mental Disorders",
+    (320, 389): "Nervous System",
+    (390, 459): "Circulatory",
+    (460, 519): "Respiratory",
+    (520, 579): "Digestive",
+    (580, 629): "Genitourinary",
+    (630, 679): "Pregnancy",
+    (680, 709): "Skin",
+    (710, 739): "Musculoskeletal",
+    (740, 759): "Congenital",
+    (760, 779): "Perinatal",
+    (780, 799): "Symptoms / Signs",
+    (800, 999): "Injury & Poisoning",
+}
 
-    def to_dict(self) -> Dict:
-        return {
-            'test_name': self.test_name,
-            'statistic': self.statistic,
-            'p_value': self.p_value,
-            'significant': self.significant,
-            'effect_size': self.effect_size,
-            'ci_lower': self.confidence_interval[0] if self.confidence_interval else None,
-            'ci_upper': self.confidence_interval[1] if self.confidence_interval else None,
-            **(self.additional_info or {})
+CONDITION_PALETTE = {
+    "neutralize": "#4e79a7",
+    "pejorative": "#e15759",
+    "laud":       "#59a14f",
+    "laudatory":  "#59a14f",
+    "neutralval": "#f28e2b",
+}
+
+EFFECT_THRESHOLDS = {
+    # Lower-bound values for each Cohen's d category (Cohen 1988).
+    # |d| < 0.2           → negligible
+    # 0.2 ≤ |d| < 0.5    → small
+    # 0.5 ≤ |d| < 0.8    → medium
+    # |d| ≥ 0.8           → large
+    "small":  0.2,
+    "medium": 0.5,
+    "large":  0.8,
+}
+
+
+# ===========================================================================
+# Utility helpers
+# ===========================================================================
+
+def icd9_chapter(code: str) -> str:
+    """Map a 3-digit ICD-9 code string to its chapter label."""
+    if code.startswith(("V", "v")):
+        return "V Codes"
+    if code.startswith(("E", "e")):
+        return "E Codes"
+    try:
+        n = int(code)
+        for (lo, hi), label in ICD9_CHAPTERS.items():
+            if lo <= n <= hi:
+                return label
+    except ValueError:
+        pass
+    return "Other"
+
+
+def interpret_effect_size(d: float) -> str:
+    """Interpret Cohen's d magnitude label (Cohen 1988 thresholds)."""
+    a = abs(d)
+    if a < EFFECT_THRESHOLDS["small"]:
+        return "negligible"
+    if a < EFFECT_THRESHOLDS["medium"]:
+        return "small"
+    if a < EFFECT_THRESHOLDS["large"]:
+        return "medium"
+    return "large"
+
+
+def find_csv_for_condition(results_dir: Path, condition: str) -> Optional[Path]:
+    """
+    Locate the CSV file for a given shift condition.
+    Handles both timestamped filenames (e.g. neutralize_20250101_123456_diagnosis.csv)
+    and simple filenames (e.g. neutralize_shift_diagnosis.csv).
+    """
+    shift_prefix_map = {
+        "neutralize": "neutralize",
+        "pejorative": "pejorative",
+        "laud":       "laudatory",
+        "laudatory":  "laudatory",
+        "neutralval": "neutralval",
+    }
+    prefix = shift_prefix_map.get(condition, condition)
+
+    patterns = [
+        rf"^{re.escape(prefix)}_\d{{8}}_\d{{6}}_diagnosis\.csv$",
+        rf"^{re.escape(condition)}_shift_diagnosis\.csv$",
+        rf"^{re.escape(prefix)}_.*diagnosis\.csv$",
+        rf"^{re.escape(prefix)}_diagnosis\.csv$",
+    ]
+
+    for filename in os.listdir(results_dir):
+        for pat in patterns:
+            if re.match(pat, filename, re.IGNORECASE):
+                return results_dir / filename
+    return None
+
+
+def load_predictions(path: Path) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Load a prediction CSV and return (dataframe, list_of_code_columns).
+    Code columns are all numeric columns that are not metadata.
+    """
+    df = pd.read_csv(path)
+    code_cols = [
+        c for c in df.columns
+        if c not in NON_CODE_COLS
+        and pd.api.types.is_numeric_dtype(df[c])
+    ]
+    logger.info(f"  Loaded {path.name}: {len(df)} notes, {len(code_cols)} ICD-9 codes")
+    return df, code_cols
+
+
+# ===========================================================================
+# Core statistical functions
+# ===========================================================================
+
+def cohens_d_paired(baseline: np.ndarray, treatment: np.ndarray) -> float:
+    """Cohen's d for paired samples (d = mean(diff) / SD(diff))."""
+    diff = treatment - baseline
+    sd = np.std(diff, ddof=1)
+    return 0.0 if sd == 0 or np.isnan(sd) else float(np.mean(diff) / sd)
+
+
+def hedges_g_paired(baseline: np.ndarray, treatment: np.ndarray) -> float:
+    """
+    Bias-corrected Hedges' g for paired samples.
+
+    For paired designs, df = n - 1, so the correction factor is:
+        J(df) = 1 - 3 / (4 * df - 1)
+              = 1 - 3 / (4 * (n-1) - 1)
+              = 1 - 3 / (4n - 5)
+    This is the correct paired-sample formula (Hedges & Olkin 1985).
+    The commonly seen 4n-9 denominator applies to two-independent-sample designs
+    where N is the *total* sample size (df = N - 2), which is incorrect here.
+    """
+    d = cohens_d_paired(baseline, treatment)
+    n = len(baseline)
+    if n < 3:                        # correction undefined for n < 3 (df < 2)
+        return d
+    return d * (1.0 - 3.0 / (4.0 * n - 5.0))
+
+
+def bootstrap_ci(
+    diffs: np.ndarray,
+    n_bootstrap: int = 5000,
+    alpha: float = 0.05,
+    seed: int = 42,
+) -> Tuple[float, float]:
+    """
+    Percentile bootstrap 95% CI for the mean of diffs.
+    Returns (lower, upper).
+    """
+    rng = np.random.default_rng(seed)
+    n = len(diffs)
+    boot_means = np.array([
+        rng.choice(diffs, size=n, replace=True).mean()
+        for _ in range(n_bootstrap)
+    ])
+    lo = np.percentile(boot_means, 100 * alpha / 2)
+    hi = np.percentile(boot_means, 100 * (1 - alpha / 2))
+    return float(lo), float(hi)
+
+
+def paired_permutation_test(
+    baseline: np.ndarray,
+    treatment: np.ndarray,
+    n_permutations: int = 10000,
+    seed: int = 42,
+) -> float:
+    """
+    Approximate randomization test (Yeh 2000).
+    H0: mean(treatment - baseline) = 0
+    Returns two-sided p-value with Laplace smoothing.
+    """
+    rng = np.random.default_rng(seed)
+    diffs = treatment - baseline
+    obs = np.abs(np.mean(diffs))
+
+    # Vectorized: draw (n_perm x n) sign-flip matrix
+    signs = rng.choice([-1.0, 1.0], size=(n_permutations, len(diffs)))
+    perm_means = np.abs((signs * diffs[np.newaxis, :]).mean(axis=1))
+    count_extreme = int(np.sum(perm_means >= obs))
+
+    return (count_extreme + 1) / (n_permutations + 1)
+
+
+def analyze_one_code(
+    code: str,
+    baseline: np.ndarray,
+    treatment: np.ndarray,
+    n_permutations: int,
+    seed: int,
+) -> dict:
+    """Run all tests for a single ICD-9 code. Returns a result dict."""
+    diffs = treatment - baseline
+
+    # Paired t-test
+    t_stat, t_pval = ttest_rel(baseline, treatment)
+
+    # Wilcoxon signed-rank (skip if all diffs are zero)
+    if np.all(diffs == 0):
+        w_stat, w_pval = np.nan, 1.0
+    else:
+        try:
+            w_stat, w_pval = wilcoxon(diffs, zero_method="wilcox")
+        except Exception:
+            w_stat, w_pval = np.nan, 1.0
+
+    # Permutation test
+    perm_pval = paired_permutation_test(baseline, treatment,
+                                        n_permutations=n_permutations,
+                                        seed=seed)
+
+    # Effect sizes
+    d = cohens_d_paired(baseline, treatment)
+    g = hedges_g_paired(baseline, treatment)
+
+    # Bootstrap CI
+    ci_lo, ci_hi = bootstrap_ci(diffs, seed=seed)
+
+    return {
+        "diagnosis_code":       code,
+        "icd9_chapter":         icd9_chapter(code),
+        "n_samples":            len(baseline),
+        "mean_shift":           float(np.mean(diffs)),
+        "median_shift":         float(np.median(diffs)),
+        "std_shift":            float(np.std(diffs, ddof=1)),
+        "ci_lower":             ci_lo,
+        "ci_upper":             ci_hi,
+        "baseline_mean":        float(np.mean(baseline)),
+        "baseline_std":         float(np.std(baseline, ddof=1)),
+        "treatment_mean":       float(np.mean(treatment)),
+        "treatment_std":        float(np.std(treatment, ddof=1)),
+        "cohens_d":             d,
+        "hedges_g":             g,
+        "effect_size_label":    interpret_effect_size(d),
+        "ttest_statistic":      float(t_stat),
+        "ttest_pvalue":         float(t_pval),
+        "wilcoxon_statistic":   float(w_stat) if not np.isnan(w_stat) else np.nan,
+        "wilcoxon_pvalue":      float(w_pval),
+        "permutation_pvalue":   float(perm_pval),
+        "permutation_n":        n_permutations,
+    }
+
+
+def apply_fdr_correction(
+    results_df: pd.DataFrame,
+    pval_col: str,
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """
+    Add corrected p-values and significance flag columns for a given raw p-value column.
+    Uses Benjamini-Hochberg FDR (Benjamini & Hochberg 1995).
+    """
+    pvals = results_df[pval_col].fillna(1.0).values
+    rejected, corrected, _, _ = multipletests(pvals, alpha=alpha, method="fdr_bh")
+    out_col  = pval_col + "_corrected"
+    flag_col = pval_col.replace("_pvalue", "") + "_significant"
+    results_df = results_df.copy()
+    results_df[out_col]  = corrected
+    results_df[flag_col] = rejected
+    return results_df
+
+
+def run_full_comparison(
+    baseline_df: pd.DataFrame,
+    treatment_df: pd.DataFrame,
+    code_cols: List[str],
+    n_permutations: int,
+    alpha: float,
+    seed: int,
+    label: str,
+) -> pd.DataFrame:
+    """
+    Run all statistical tests for every code column.
+    Returns a fully annotated results DataFrame.
+    """
+    logger.info(f"  Running {label}: {len(code_cols)} codes × {len(baseline_df)} notes ...")
+
+    # --- Align notes by NoteID to guarantee correct pairing ----------------
+    # .head(n) would silently mis-pair notes if CSVs are in different orders.
+    # We must match on the note identifier column explicitly.
+    note_id_col = next(
+        (c for c in ("NoteID", "sample_id", "note_id") if c in baseline_df.columns),
+        None,
+    )
+    if note_id_col is not None and note_id_col in treatment_df.columns:
+        base_idx  = baseline_df.set_index(note_id_col)
+        treat_idx = treatment_df.set_index(note_id_col)
+        common_ids = base_idx.index.intersection(treat_idx.index)
+        if len(common_ids) == 0:
+            logger.error("  No overlapping NoteIDs between baseline and treatment!")
+            return pd.DataFrame()
+        base_aligned  = base_idx.loc[common_ids]
+        treat_aligned = treat_idx.loc[common_ids]
+        n_aligned = len(common_ids)
+        if n_aligned < len(baseline_df):
+            logger.warning(f"  NoteID alignment: {len(baseline_df)} base rows → {n_aligned} matched pairs")
+        logger.info(f"  Aligned on NoteID: {n_aligned} paired notes")
+    else:
+        # Fallback: assume same-order CSVs and truncate to min length
+        logger.warning(
+            "  NoteID column not found — assuming CSVs are in the same row order. "
+            "Verify this holds for your data."
+        )
+        n_aligned = min(len(baseline_df), len(treatment_df))
+        base_aligned  = baseline_df.head(n_aligned)
+        treat_aligned = treatment_df.head(n_aligned)
+
+    shared_codes = [c for c in code_cols if c in treat_aligned.columns]
+    logger.info(f"  Shared ICD-9 codes: {len(shared_codes)}")
+    rows = []
+    for i, code in enumerate(shared_codes):
+        if i % 200 == 0:
+            logger.info(f"    {i}/{len(shared_codes)} codes processed")
+        b = base_aligned[code].fillna(0).values
+        t = treat_aligned[code].fillna(0).values
+        # Unique seed per code: prevents all 1266 tests from drawing
+        # identical sign-flip matrices, which would create correlated null
+        # distributions and undermine FDR correction validity.
+        code_seed = seed + i
+        rows.append(analyze_one_code(code, b, t,
+                                     n_permutations=n_permutations,
+                                     seed=code_seed))
+
+    results = pd.DataFrame(rows)
+
+    # Apply FDR correction to all three test p-values
+    for pcol in ["ttest_pvalue", "wilcoxon_pvalue", "permutation_pvalue"]:
+        results = apply_fdr_correction(results, pcol, alpha=alpha)
+
+    # Sort by absolute mean shift
+    results = results.sort_values("mean_shift", key=lambda x: x.abs(),
+                                  ascending=False).reset_index(drop=True)
+    return results
+
+
+# ===========================================================================
+# Cross-condition analysis (RQ4)
+# ===========================================================================
+
+def cross_condition_summary(
+    all_results: Dict[str, pd.DataFrame],
+    alpha: float,
+) -> pd.DataFrame:
+    """
+    Merge all condition results on diagnosis_code.
+    Returns a wide DataFrame with mean_shift per condition.
+    """
+    frames = []
+    for cond, df in all_results.items():
+        sig_col = "permutation_significant" if "permutation_significant" in df.columns else None
+        keep = ["diagnosis_code", "mean_shift", "cohens_d"]
+        if sig_col:
+            keep.append(sig_col)
+
+        sub = df[keep].copy()
+        new_names = {
+            "mean_shift": f"mean_shift_{cond}",
+            "cohens_d":   f"cohens_d_{cond}",
         }
+        if sig_col:
+            new_names[sig_col] = f"sig_{cond}"
+        sub = sub.rename(columns=new_names)
+        frames.append(sub.set_index("diagnosis_code"))
+
+    combined = pd.concat(frames, axis=1)
+    combined.index.name = "diagnosis_code"
+    return combined.reset_index()
 
 
-class StatisticalAnalyzer:
-    """Statistical analysis for valence testing results."""
+def asymmetry_stats(
+    pej_df: pd.DataFrame,
+    laud_df: pd.DataFrame,
+) -> dict:
+    """
+    Compute summary statistics for pejorative vs. laudatory asymmetry (RQ4).
+    """
+    merged = pej_df[["diagnosis_code", "mean_shift"]].merge(
+        laud_df[["diagnosis_code", "mean_shift"]],
+        on="diagnosis_code", suffixes=("_pej", "_laud")
+    ).dropna()
 
-    def __init__(
-        self,
-        significance_level: float = 0.05,
-        correction_method: str = "fdr_bh"
-    ):
-        self.significance_level = significance_level
-        self.correction_method = correction_method
-        logger.info(
-            f"Initialized StatisticalAnalyzer with alpha={significance_level}, "
-            f"correction={correction_method}"
+    r, p = stats.pearsonr(merged["mean_shift_pej"], merged["mean_shift_laud"])
+    same_dir = ((merged["mean_shift_pej"] * merged["mean_shift_laud"]) > 0).sum()
+    opp_dir  = ((merged["mean_shift_pej"] * merged["mean_shift_laud"]) < 0).sum()
+
+    return {
+        "n_codes":              len(merged),
+        "pearson_r":            round(r, 4),
+        "pearson_p":            round(p, 6),
+        "same_direction_codes": int(same_dir),
+        "opposite_direction_codes": int(opp_dir),
+        "pct_opposite":         round(100 * opp_dir / len(merged), 1),
+    }
+
+
+# ===========================================================================
+# Visualisation
+# ===========================================================================
+
+def _save(fig: plt.Figure, path: Path, dpi: int = 300) -> None:
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"  Saved → {path.name}")
+
+
+def plot_shift_distribution(
+    results: pd.DataFrame,
+    condition: str,
+    output_dir: Path,
+) -> None:
+    """Histogram of mean probability shifts for all ICD-9 codes."""
+    color = CONDITION_PALETTE.get(condition, "steelblue")
+    sig_col = "permutation_significant"
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    # All codes
+    axes[0].hist(results["mean_shift"], bins=80,
+                 color=color, edgecolor="white", alpha=0.85)
+    axes[0].axvline(0, color="black", lw=1.5)
+    axes[0].axvline(0.01,  color="crimson",   lw=1, ls="--", label="+0.01")
+    axes[0].axvline(-0.01, color="navy", lw=1, ls="--", label="−0.01")
+    axes[0].set_xlabel("Mean Probability Shift (condition − baseline)")
+    axes[0].set_ylabel("Number of ICD-9 Codes")
+    axes[0].set_title(f"{condition.capitalize()} — All Codes")
+    axes[0].legend(fontsize=9)
+
+    # Significant only
+    if sig_col in results.columns:
+        sig_vals = results.loc[results[sig_col] == True, "mean_shift"]
+        axes[1].hist(sig_vals, bins=40,
+                     color=color, edgecolor="white", alpha=0.85)
+        axes[1].axvline(0, color="black", lw=1.5)
+        axes[1].set_xlabel("Mean Probability Shift (Significant Codes)")
+        axes[1].set_ylabel("Count")
+        axes[1].set_title(f"Significant Codes (n={len(sig_vals):,})")
+
+    fig.suptitle(
+        f"Probability Shift Distribution — {condition.capitalize()} vs. Neutralized",
+        fontsize=13, y=1.02,
+    )
+    plt.tight_layout()
+    _save(fig, output_dir / f"fig_{condition}_shift_dist.png")
+
+
+def plot_volcano(
+    results: pd.DataFrame,
+    condition: str,
+    output_dir: Path,
+) -> None:
+    """Volcano plot: mean shift vs. −log10(corrected permutation p-value)."""
+    if "permutation_pvalue_corrected" not in results.columns:
+        return
+    color = CONDITION_PALETTE.get(condition, "steelblue")
+
+    df = results.copy()
+    df["neg_log_p"] = -np.log10(
+        df["permutation_pvalue_corrected"].clip(lower=1e-6)
+    )
+    df["sig"] = df.get("permutation_significant", False).fillna(False)
+    threshold = -np.log10(0.05)
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    colors = df["sig"].map({True: color, False: "#d0d0d0"})
+    ax.scatter(df["mean_shift"], df["neg_log_p"],
+               c=colors, alpha=0.55, s=15, linewidths=0)
+    ax.axhline(threshold, color="black", ls="--", lw=1.0, label="FDR α = 0.05")
+    ax.axvline(0, color="gray", lw=0.7)
+
+    # Annotate top 12 by −log p
+    top = df[df["sig"]].nlargest(12, "neg_log_p")
+    for _, row in top.iterrows():
+        ax.annotate(
+            row["diagnosis_code"],
+            xy=(row["mean_shift"], row["neg_log_p"]),
+            xytext=(4, 2), textcoords="offset points",
+            fontsize=7, color="black",
         )
 
-    def cohens_d(
-        self,
-        group1: np.ndarray,
-        group2: np.ndarray,
-        paired: bool = True
-    ) -> float:
-        """Calculate Cohen's d effect size."""
-        if paired:
-            diff = group1 - group2
-            std_diff = np.std(diff, ddof=1)
-            if std_diff == 0 or np.isnan(std_diff):
-                return 0.0
-            return np.mean(diff) / std_diff
-        else:
-            n1, n2 = len(group1), len(group2)
-            var1, var2 = np.var(group1, ddof=1), np.var(group2, ddof=1)
-            pooled_std = np.sqrt(((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2))
-            if pooled_std == 0 or np.isnan(pooled_std):
-                return 0.0
-            return (np.mean(group1) - np.mean(group2)) / pooled_std
-
-    def hedges_g(
-        self,
-        group1: np.ndarray,
-        group2: np.ndarray,
-        paired: bool = True
-    ) -> float:
-        """Calculate Hedges' g effect size (bias-corrected Cohen's d)."""
-        d = self.cohens_d(group1, group2, paired)
-        n = len(group1) if paired else len(group1) + len(group2)
-        correction_factor = 1 - (3 / (4 * n - 9))
-        return d * correction_factor
-
-    def paired_ttest(
-        self,
-        baseline: np.ndarray,
-        treatment: np.ndarray,
-        alternative: str = "two-sided"
-    ) -> StatisticalTestResult:
-        """Perform paired t-test."""
-        statistic, p_value = ttest_rel(baseline, treatment, alternative=alternative)
-        effect_size = self.cohens_d(treatment, baseline, paired=True)
-
-        diff = treatment - baseline
-        se = stats.sem(diff)
-        ci = stats.t.interval(
-            1 - self.significance_level,
-            len(diff) - 1,
-            loc=np.mean(diff),
-            scale=se
-        )
-
-        return StatisticalTestResult(
-            test_name="Paired t-test",
-            statistic=statistic,
-            p_value=p_value,
-            significant=p_value < self.significance_level,
-            effect_size=effect_size,
-            confidence_interval=ci,
-            additional_info={
-                'mean_difference': np.mean(diff),
-                'std_difference': np.std(diff, ddof=1),
-                'alternative': alternative
-            }
-        )
-
-    def wilcoxon_test(
-        self,
-        baseline: np.ndarray,
-        treatment: np.ndarray,
-        alternative: str = "two-sided"
-    ) -> StatisticalTestResult:
-        """Perform Wilcoxon signed-rank test (non-parametric paired test)."""
-        statistic, p_value = wilcoxon(
-            baseline,
-            treatment,
-            alternative=alternative,
-            zero_method='wilcox'
-        )
-
-        diff = treatment - baseline
-        n_pos = np.sum(diff > 0)
-        n_neg = np.sum(diff < 0)
-        r = (n_pos - n_neg) / (n_pos + n_neg) if (n_pos + n_neg) > 0 else 0
-
-        return StatisticalTestResult(
-            test_name="Wilcoxon signed-rank test",
-            statistic=statistic,
-            p_value=p_value,
-            significant=p_value < self.significance_level,
-            effect_size=r,
-            additional_info={
-                'median_difference': np.median(diff),
-                'n_positive': int(n_pos),
-                'n_negative': int(n_neg),
-                'alternative': alternative
-            }
-        )
-
-    def mann_whitney_test(
-        self,
-        group1: np.ndarray,
-        group2: np.ndarray,
-        alternative: str = "two-sided"
-    ) -> StatisticalTestResult:
-        """Perform Mann-Whitney U test (non-parametric unpaired test)."""
-        statistic, p_value = mannwhitneyu(
-            group1,
-            group2,
-            alternative=alternative
-        )
-
-        n1, n2 = len(group1), len(group2)
-        r = 1 - (2 * statistic) / (n1 * n2)
-
-        return StatisticalTestResult(
-            test_name="Mann-Whitney U test",
-            statistic=statistic,
-            p_value=p_value,
-            significant=p_value < self.significance_level,
-            effect_size=r,
-            additional_info={
-                'median_group1': np.median(group1),
-                'median_group2': np.median(group2),
-                'alternative': alternative
-            }
-        )
-
-    def paired_permutation_test(
-        self,
-        baseline: np.ndarray,
-        treatment: np.ndarray,
-        n_permutations: int = 10000,
-        alternative: str = "two-sided",
-        random_seed: Optional[int] = None
-    ) -> StatisticalTestResult:
-        """Paired permutation test (Yeh 2000 approximate randomization)."""
-        if random_seed is not None:
-            np.random.seed(random_seed)
-
-        observed_diff = np.mean(treatment - baseline)
-        n_samples = len(baseline)
-        count_extreme = 0
-
-        flip_masks = np.random.choice([-1, 1], size=(n_permutations, n_samples))
-        diffs = treatment - baseline
-        permuted_diffs = flip_masks * diffs[np.newaxis, :]
-        permuted_means = np.mean(permuted_diffs, axis=1)
-
-        if alternative == "two-sided":
-            count_extreme = np.sum(np.abs(permuted_means) >= abs(observed_diff))
-        elif alternative == "greater":
-            count_extreme = np.sum(permuted_means >= observed_diff)
-        elif alternative == "less":
-            count_extreme = np.sum(permuted_means <= observed_diff)
-
-        p_value = (count_extreme + 1) / (n_permutations + 1)
-        effect_size = self.cohens_d(treatment, baseline, paired=True)
-
-        _, ci = self.bootstrap_confidence_interval(
-            treatment - baseline,
-            np.mean,
-            n_bootstrap=5000
-        )
-
-        return StatisticalTestResult(
-            test_name="Paired Permutation Test",
-            statistic=observed_diff,
-            p_value=p_value,
-            significant=p_value < self.significance_level,
-            effect_size=effect_size,
-            confidence_interval=ci,
-            additional_info={
-                'n_permutations': n_permutations,
-                'alternative': alternative,
-                'mean_difference': observed_diff,
-                'method': 'approximate_randomization'
-            }
-        )
-
-    def stratified_permutation_test(
-        self,
-        baseline_binary: np.ndarray,
-        treatment_binary: np.ndarray,
-        n_permutations: int = 10000,
-        random_seed: Optional[int] = None
-    ) -> StatisticalTestResult:
-        """Stratified permutation test for binary outcomes (Yeh 2000)."""
-        if random_seed is not None:
-            np.random.seed(random_seed)
-
-        both_positive = (baseline_binary == 1) & (treatment_binary == 1)
-        both_negative = (baseline_binary == 0) & (treatment_binary == 0)
-        baseline_only = (baseline_binary == 1) & (treatment_binary == 0)
-        treatment_only = (baseline_binary == 0) & (treatment_binary == 1)
-
-        observed_metric = np.mean(treatment_binary) - np.mean(baseline_binary)
-
-        count_extreme = 0
-        n_disagree = np.sum(baseline_only) + np.sum(treatment_only)
-
-        if n_disagree == 0:
-            return StatisticalTestResult(
-                test_name="Stratified Permutation Test",
-                statistic=0.0,
-                p_value=1.0,
-                significant=False,
-                additional_info={
-                    'n_permutations': n_permutations,
-                    'n_both_positive': int(np.sum(both_positive)),
-                    'n_both_negative': int(np.sum(both_negative)),
-                    'n_disagreements': 0,
-                    'note': 'Perfect agreement - no permutation needed'
-                }
-            )
-
-        disagree_indices = np.where(baseline_only | treatment_only)[0]
-        n_baseline_only = np.sum(baseline_only)
-
-        for _ in range(n_permutations):
-            perm_baseline = baseline_binary.copy()
-            perm_treatment = treatment_binary.copy()
-
-            random_assignment = np.random.permutation(n_disagree)
-            new_baseline_only_idx = disagree_indices[random_assignment < n_baseline_only]
-            new_treatment_only_idx = disagree_indices[random_assignment >= n_baseline_only]
-
-            perm_baseline[disagree_indices] = 0
-            perm_treatment[disagree_indices] = 0
-
-            perm_baseline[new_baseline_only_idx] = 1
-            perm_treatment[new_treatment_only_idx] = 1
-
-            perm_baseline[both_positive] = 1
-            perm_treatment[both_positive] = 1
-            perm_baseline[both_negative] = 0
-            perm_treatment[both_negative] = 0
-
-            permuted_metric = np.mean(perm_treatment) - np.mean(perm_baseline)
-
-            if abs(permuted_metric) >= abs(observed_metric):
-                count_extreme += 1
-
-        p_value = (count_extreme + 1) / (n_permutations + 1)
-
-        return StatisticalTestResult(
-            test_name="Stratified Permutation Test",
-            statistic=observed_metric,
-            p_value=p_value,
-            significant=p_value < self.significance_level,
-            additional_info={
-                'n_permutations': n_permutations,
-                'n_both_positive': int(np.sum(both_positive)),
-                'n_both_negative': int(np.sum(both_negative)),
-                'n_baseline_only': int(np.sum(baseline_only)),
-                'n_treatment_only': int(np.sum(treatment_only)),
-                'method': 'stratified_randomization'
-            }
-        )
-
-    def bootstrap_confidence_interval(
-        self,
-        data: np.ndarray,
-        statistic_func: callable,
-        n_bootstrap: int = 10000,
-        confidence_level: float = 0.95
-    ) -> Tuple[float, Tuple[float, float]]:
-        """Calculate bootstrap confidence interval."""
-        bootstrap_stats = []
-        n = len(data)
-
-        for _ in range(n_bootstrap):
-            bootstrap_sample = np.random.choice(data, size=n, replace=True)
-            bootstrap_stats.append(statistic_func(bootstrap_sample))
-
-        bootstrap_stats = np.array(bootstrap_stats)
-        point_estimate = statistic_func(data)
-
-        alpha = 1 - confidence_level
-        ci_lower = np.percentile(bootstrap_stats, 100 * alpha / 2)
-        ci_upper = np.percentile(bootstrap_stats, 100 * (1 - alpha / 2))
-
-        return point_estimate, (ci_lower, ci_upper)
-
-    def correct_multiple_comparisons(
-        self,
-        p_values: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Apply multiple comparison correction to p-values."""
-        if self.correction_method == 'none':
-            rejected = p_values < self.significance_level
-            return rejected, p_values
-
-        rejected, corrected_p, _, _ = multipletests(
-            p_values,
-            alpha=self.significance_level,
-            method=self.correction_method
-        )
-
-        logger.info(
-            f"Multiple comparison correction ({self.correction_method}): "
-            f"{np.sum(rejected)}/{len(p_values)} tests significant"
-        )
-
-        return rejected, corrected_p
-
-    def analyze_diagnosis_shifts(
-        self,
-        baseline_probs: pd.DataFrame,
-        treatment_probs: pd.DataFrame,
-        diagnosis_codes: List[str],
-        use_permutation: bool = True,
-        n_permutations: int = 10000,
-        random_seed: Optional[int] = None
-    ) -> pd.DataFrame:
-        """Analyze diagnosis probability shifts across all codes."""
-        results = []
-
-        for code in diagnosis_codes:
-            if code not in baseline_probs.columns or code not in treatment_probs.columns:
-                logger.warning(f"Diagnosis code {code} not found in data")
-                continue
-
-            baseline = baseline_probs[code].values
-            treatment = treatment_probs[code].values
-
-            # Perform traditional parametric tests
-            ttest_result = self.paired_ttest(baseline, treatment)
-            wilcoxon_result = self.wilcoxon_test(baseline, treatment)
-
-            # Perform permutation test (approximate randomization)
-            if use_permutation:
-                perm_result = self.paired_permutation_test(
-                    baseline,
-                    treatment,
-                    n_permutations=n_permutations,
-                    random_seed=random_seed
-                )
-
-            # Calculate additional statistics
-            mean_shift = np.mean(treatment - baseline)
-            median_shift = np.median(treatment - baseline)
-            hedges_g = self.hedges_g(treatment, baseline, paired=True)
-
-            # Bootstrap CI for mean shift
-            _, ci_mean_shift = self.bootstrap_confidence_interval(
-                treatment - baseline,
-                np.mean,
-                n_bootstrap=5000
-            )
-
-            result_dict = {
-                'diagnosis_code': code,
-                'mean_shift': mean_shift,
-                'median_shift': median_shift,
-                'cohens_d': ttest_result.effect_size,
-                'hedges_g': hedges_g,
-                'ttest_statistic': ttest_result.statistic,
-                'ttest_pvalue': ttest_result.p_value,
-                'wilcoxon_statistic': wilcoxon_result.statistic,
-                'wilcoxon_pvalue': wilcoxon_result.p_value,
-                'ci_lower': ci_mean_shift[0],
-                'ci_upper': ci_mean_shift[1],
-                'baseline_mean': np.mean(baseline),
-                'baseline_std': np.std(baseline),
-                'treatment_mean': np.mean(treatment),
-                'treatment_std': np.std(treatment)
-            }
-
-            # Add permutation test results if enabled
-            if use_permutation:
-                result_dict.update({
-                    'permutation_pvalue': perm_result.p_value,
-                    'permutation_n_permutations': n_permutations
-                })
-
-            results.append(result_dict)
-
-        results_df = pd.DataFrame(results)
-
-        # Apply multiple comparison correction
-        if len(results_df) > 1:
-            rejected_ttest, corrected_p_ttest = self.correct_multiple_comparisons(
-                results_df['ttest_pvalue'].values
-            )
-            rejected_wilcoxon, corrected_p_wilcoxon = self.correct_multiple_comparisons(
-                results_df['wilcoxon_pvalue'].values
-            )
-
-            results_df['ttest_pvalue_corrected'] = corrected_p_ttest
-            results_df['ttest_significant'] = rejected_ttest
-            results_df['wilcoxon_pvalue_corrected'] = corrected_p_wilcoxon
-            results_df['wilcoxon_significant'] = rejected_wilcoxon
-
-            # Apply correction to permutation p-values if enabled
-            if use_permutation and 'permutation_pvalue' in results_df.columns:
-                rejected_perm, corrected_p_perm = self.correct_multiple_comparisons(
-                    results_df['permutation_pvalue'].values
-                )
-                results_df['permutation_pvalue_corrected'] = corrected_p_perm
-                results_df['permutation_significant'] = rejected_perm
-
-                logger.info(
-                    f"Permutation tests: {np.sum(rejected_perm)}/{len(results_df)} "
-                    f"diagnoses significant after correction"
-                )
-
-        return results_df
-
-    def analyze_attention_shifts(
-        self,
-        baseline_attention: pd.DataFrame,
-        treatment_attention: pd.DataFrame,
-        words: List[str],
-        top_n: int = 50,
-        use_permutation: bool = True,
-        n_permutations: int = 10000,
-        random_seed: Optional[int] = None
-    ) -> pd.DataFrame:
-        """Analyze attention weight shifts for words."""
-        results = []
-
-        for word in words:
-            if word not in baseline_attention.columns or word not in treatment_attention.columns:
-                continue
-
-            baseline = baseline_attention[word].values
-            treatment = treatment_attention[word].values
-
-            # Calculate shift statistics
-            mean_shift = np.mean(treatment - baseline)
-            effect_size = self.cohens_d(treatment, baseline, paired=True)
-
-            # Test significance with parametric test
-            ttest_result = self.paired_ttest(baseline, treatment)
-
-            result_dict = {
-                'word': word,
-                'mean_shift': mean_shift,
-                'abs_mean_shift': abs(mean_shift),
-                'cohens_d': effect_size,
-                'ttest_pvalue': ttest_result.p_value,
-                'baseline_mean': np.mean(baseline),
-                'treatment_mean': np.mean(treatment)
-            }
-
-            # Add permutation test if enabled
-            if use_permutation:
-                perm_result = self.paired_permutation_test(
-                    baseline,
-                    treatment,
-                    n_permutations=n_permutations,
-                    random_seed=random_seed
-                )
-                result_dict['permutation_pvalue'] = perm_result.p_value
-
-            results.append(result_dict)
-
-        results_df = pd.DataFrame(results)
-
-        # Sort by absolute mean shift and take top N
-        results_df = results_df.sort_values('abs_mean_shift', ascending=False).head(top_n)
-
-        # Apply multiple comparison correction
-        if len(results_df) > 1:
-            rejected, corrected_p = self.correct_multiple_comparisons(
-                results_df['ttest_pvalue'].values
-            )
-            results_df['ttest_pvalue_corrected'] = corrected_p
-            results_df['significant'] = rejected
-
-            # Apply correction to permutation p-values if enabled
-            if use_permutation and 'permutation_pvalue' in results_df.columns:
-                rejected_perm, corrected_p_perm = self.correct_multiple_comparisons(
-                    results_df['permutation_pvalue'].values
-                )
-                results_df['permutation_pvalue_corrected'] = corrected_p_perm
-                results_df['permutation_significant'] = rejected_perm
-
-        return results_df
-
-    def summary_statistics(
-        self,
-        data: pd.DataFrame,
-        group_col: str,
-        value_cols: List[str]
-    ) -> pd.DataFrame:
-        """Calculate summary statistics by group."""
-        summary_funcs = {
-            'count': 'count',
-            'mean': 'mean',
-            'std': 'std',
-            'min': 'min',
-            'q25': lambda x: x.quantile(0.25),
-            'median': 'median',
-            'q75': lambda x: x.quantile(0.75),
-            'max': 'max'
-        }
-
-        results = []
-        for val_col in value_cols:
-            grouped = data.groupby(group_col)[val_col].agg(**summary_funcs)
-            grouped['variable'] = val_col
-            results.append(grouped.reset_index())
-
-        return pd.concat(results, ignore_index=True)
-
-    def effect_size_interpretation(self, effect_size: float) -> str:
-        """Interpret effect size magnitude (Cohen's d or Hedges' g)."""
-        abs_es = abs(effect_size)
-        if abs_es < 0.2:
-            return "negligible"
-        elif abs_es < 0.5:
-            return "small"
-        elif abs_es < 0.8:
-            return "medium"
-        else:
-            return "large"
-
-    def generate_analysis_report(
-        self,
-        diagnosis_results: pd.DataFrame,
-        attention_results: Optional[pd.DataFrame] = None,
-        output_path: Optional[Union[str, Path]] = None
-    ) -> str:
-        """Generate comprehensive analysis report."""
-        has_permutation = 'permutation_pvalue' in diagnosis_results.columns
-
-        report_lines = [
+    ax.set_xlabel("Mean Probability Shift (condition − baseline)", fontsize=11)
+    ax.set_ylabel("−log₁₀(Corrected p-value)", fontsize=11)
+    ax.set_title(
+        f"Volcano Plot — {condition.capitalize()} vs. Neutralized", fontsize=13
+    )
+    ax.legend(fontsize=9)
+    plt.tight_layout()
+    _save(fig, output_dir / f"fig_{condition}_volcano.png")
+
+
+def plot_top_codes_bar(
+    results: pd.DataFrame,
+    condition: str,
+    output_dir: Path,
+    top_n: int = 25,
+) -> None:
+    """Horizontal bar chart of top N most shifted (significant) codes."""
+    color = CONDITION_PALETTE.get(condition, "steelblue")
+    sig_col = "permutation_significant"
+
+    if sig_col in results.columns:
+        sig = results[results[sig_col] == True].copy()
+    else:
+        sig = results.copy()
+
+    if sig.empty:
+        logger.warning(f"  No significant codes for {condition} — skipping bar plot")
+        return
+
+    top = sig.nlargest(top_n, "mean_shift", keep="all").head(top_n)
+    bottom = sig.nsmallest(top_n, "mean_shift", keep="all").head(top_n)
+    combined = pd.concat([top, bottom]).drop_duplicates("diagnosis_code")
+    combined = combined.sort_values("mean_shift")
+
+    bar_colors = [color if v > 0 else "#aaaaaa" for v in combined["mean_shift"]]
+
+    fig, ax = plt.subplots(figsize=(10, max(8, len(combined) * 0.32)))
+    ax.barh(combined["diagnosis_code"], combined["mean_shift"],
+            color=bar_colors, edgecolor="white", height=0.7)
+    ax.axvline(0, color="black", lw=1.0)
+    ax.set_xlabel("Mean Probability Shift")
+    ax.set_title(
+        f"Top Shifted ICD-9 Codes — {condition.capitalize()} vs. Neutralized\n"
+        f"(FDR-corrected permutation test, α=0.05)",
+        fontsize=12,
+    )
+    plt.tight_layout()
+    _save(fig, output_dir / f"fig_{condition}_top_codes.png")
+
+
+def plot_cross_condition_heatmap(
+    combined: pd.DataFrame,
+    shift_cols: List[str],
+    output_dir: Path,
+    top_n: int = 40,
+) -> None:
+    """Heatmap of mean shifts across all conditions for the most affected codes."""
+    heat = combined.set_index("diagnosis_code")[shift_cols].copy()
+    heat["max_abs"] = heat.abs().max(axis=1)
+    top = heat.nlargest(top_n, "max_abs").drop(columns="max_abs")
+
+    # Rename columns for display
+    display_cols = [c.replace("mean_shift_", "").capitalize() for c in shift_cols]
+    top.columns = display_cols
+
+    fig, ax = plt.subplots(figsize=(len(display_cols) * 2.5 + 3, max(12, top_n * 0.32)))
+    sns.heatmap(
+        top,
+        cmap="vlag", center=0,
+        vmin=-0.035, vmax=0.035,
+        linewidths=0.3,
+        annot=len(top) <= 30,
+        fmt=".4f" if len(top) <= 30 else "",
+        ax=ax,
+        cbar_kws={"label": "Mean Probability Shift (condition − baseline)"},
+    )
+    ax.set_title(
+        f"Cross-Condition Probability Shifts\n(Top {top_n} ICD-9 Codes by Max |Shift|)",
+        fontsize=13,
+    )
+    ax.set_xlabel("Valence Condition")
+    ax.set_ylabel("ICD-9 Code")
+    plt.tight_layout()
+    _save(fig, output_dir / "fig_cross_condition_heatmap.png")
+
+
+def plot_asymmetry_scatter(
+    pej_df: pd.DataFrame,
+    laud_df: pd.DataFrame,
+    output_dir: Path,
+) -> None:
+    """Scatter of pejorative vs. laudatory shift per ICD-9 code (RQ4)."""
+    merged = pej_df[["diagnosis_code", "mean_shift"]].merge(
+        laud_df[["diagnosis_code", "mean_shift"]],
+        on="diagnosis_code", suffixes=("_pej", "_laud")
+    ).dropna()
+
+    if merged.empty:
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+    ax.scatter(merged["mean_shift_laud"], merged["mean_shift_pej"],
+               alpha=0.30, s=12, color="#555555")
+
+    lim = max(merged[["mean_shift_pej", "mean_shift_laud"]].abs().max().max() * 1.15, 0.02)
+    ax.plot([-lim, lim], [-lim, lim], "k--", lw=1.0, label="y = x (symmetric)")
+    ax.plot([-lim, lim], [ lim, -lim], color="gray", lw=0.7, ls=":")
+    ax.axhline(0, color="gray", lw=0.5)
+    ax.axvline(0, color="gray", lw=0.5)
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_xlabel("Laudatory Mean Shift", fontsize=11)
+    ax.set_ylabel("Pejorative Mean Shift", fontsize=11)
+
+    r, p = stats.pearsonr(merged["mean_shift_pej"], merged["mean_shift_laud"])
+    ax.set_title(
+        f"Pejorative vs. Laudatory Shift Asymmetry\n"
+        f"(n={len(merged):,} codes, r={r:.3f}, p={p:.4f})",
+        fontsize=12,
+    )
+    ax.legend(fontsize=9)
+    plt.tight_layout()
+    _save(fig, output_dir / "fig_rq4_asymmetry_scatter.png")
+
+
+def plot_chapter_summary(
+    results: pd.DataFrame,
+    condition: str,
+    output_dir: Path,
+) -> None:
+    """Box plot of mean shifts grouped by ICD-9 chapter."""
+    sig_col = "permutation_significant"
+    color = CONDITION_PALETTE.get(condition, "steelblue")
+
+    if "icd9_chapter" not in results.columns:
+        return
+
+    chapter_order = (
+        results.groupby("icd9_chapter")["mean_shift"]
+        .median()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+
+    fig, ax = plt.subplots(figsize=(13, 6))
+    data_by_chapter = [
+        results.loc[results["icd9_chapter"] == ch, "mean_shift"].values
+        for ch in chapter_order
+    ]
+
+    bp = ax.boxplot(data_by_chapter, patch_artist=True, vert=True,
+                    medianprops={"color": "black", "lw": 2})
+    for patch in bp["boxes"]:
+        patch.set_facecolor(color)
+        patch.set_alpha(0.55)
+
+    ax.set_xticks(range(1, len(chapter_order) + 1))
+    ax.set_xticklabels(chapter_order, rotation=35, ha="right", fontsize=9)
+    ax.axhline(0, color="black", lw=0.8, ls="--")
+    ax.set_ylabel("Mean Probability Shift")
+    ax.set_title(
+        f"Shift Distribution by ICD-9 Chapter — {condition.capitalize()} vs. Neutralized",
+        fontsize=12,
+    )
+    plt.tight_layout()
+    _save(fig, output_dir / f"fig_{condition}_chapter_boxplot.png")
+
+
+def plot_effect_size_distribution(
+    results: pd.DataFrame,
+    condition: str,
+    output_dir: Path,
+) -> None:
+    """Histogram of Cohen's d values for all significant codes."""
+    color = CONDITION_PALETTE.get(condition, "steelblue")
+    sig_col = "permutation_significant"
+
+    df = results[results.get(sig_col, pd.Series(False)) == True] if sig_col in results else results
+
+    if df.empty:
+        return
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.hist(df["cohens_d"], bins=50, color=color, edgecolor="white", alpha=0.85)
+    for thresh, lbl in [(0.2, "small"), (0.5, "medium"), (0.8, "large")]:
+        ax.axvline( thresh, color="black", ls=":", lw=1.0, label=f"|d|={thresh} ({lbl})")
+        ax.axvline(-thresh, color="black", ls=":", lw=1.0)
+    ax.axvline(0, color="gray", lw=0.8)
+    ax.set_xlabel("Cohen's d (paired)")
+    ax.set_ylabel("Number of Significant ICD-9 Codes")
+    ax.set_title(f"Effect Size Distribution — {condition.capitalize()} Significant Codes")
+    ax.legend(fontsize=8)
+    plt.tight_layout()
+    _save(fig, output_dir / f"fig_{condition}_effect_sizes.png")
+
+
+# ===========================================================================
+# Attention analysis (RQ5)
+# ===========================================================================
+
+def load_attention_data(results_dir: Path, condition: str) -> Optional[pd.DataFrame]:
+    """Try to load the attention CSV for a given condition."""
+    prefix_map = {
+        "pejorative": "pejorative",
+        "laud":       "laudatory",
+        "laudatory":  "laudatory",
+        "neutralval": "neutralval",
+    }
+    prefix = prefix_map.get(condition, condition)
+    patterns = [
+        rf"^{re.escape(prefix)}_.*attention\.csv$",
+        rf"^{re.escape(condition)}_.*attention\.csv$",
+    ]
+    for fname in os.listdir(results_dir):
+        for pat in patterns:
+            if re.match(pat, fname, re.IGNORECASE):
+                return pd.read_csv(results_dir / fname)
+    return None
+
+
+def analyze_attention(
+    baseline_attn: pd.DataFrame,
+    treatment_attn: pd.DataFrame,
+    condition: str,
+    output_dir: Path,
+    n_permutations: int = 10000,
+    alpha: float = 0.05,
+    top_n: int = 30,
+) -> Optional[pd.DataFrame]:
+    """
+    Compare CLS-token attention weights per word between baseline and treatment.
+    Returns a results DataFrame.
+    """
+    # Pivot to wide format: rows=NoteID, columns=Word
+    def pivot_attn(df: pd.DataFrame) -> pd.DataFrame:
+        return (df.groupby(["NoteID", "Word"])["AttentionWeight"]
+                  .mean()
+                  .unstack(fill_value=0))
+
+    b_wide = pivot_attn(baseline_attn)
+    t_wide = pivot_attn(treatment_attn)
+    common_words = b_wide.columns.intersection(t_wide.columns)
+    common_notes = b_wide.index.intersection(t_wide.index)
+
+    if len(common_words) == 0 or len(common_notes) == 0:
+        logger.warning("  No overlapping words/notes for attention analysis")
+        return None
+
+    b_wide = b_wide.loc[common_notes, common_words]
+    t_wide = t_wide.loc[common_notes, common_words]
+
+    rows = []
+    for word in common_words:
+        b = b_wide[word].values
+        t = t_wide[word].values
+        diffs = t - b
+        mean_shift = float(np.mean(diffs))
+        d = cohens_d_paired(b, t)
+        perm_p = paired_permutation_test(b, t, n_permutations=n_permutations)
+        rows.append({
+            "word":          word,
+            "mean_shift":    mean_shift,
+            "abs_shift":     abs(mean_shift),
+            "cohens_d":      d,
+            "perm_pvalue":   perm_p,
+            "baseline_mean": float(np.mean(b)),
+            "treatment_mean": float(np.mean(t)),
+        })
+
+    df = pd.DataFrame(rows).sort_values("abs_shift", ascending=False)
+
+    # FDR correct
+    rejected, corrected, _, _ = multipletests(
+        df["perm_pvalue"].values, alpha=alpha, method="fdr_bh"
+    )
+    df["perm_pvalue_corrected"] = corrected
+    df["perm_significant"] = rejected
+
+    # Bar chart of top N
+    top = df.head(top_n)
+    color = CONDITION_PALETTE.get(condition, "steelblue")
+    bar_colors = [color if v > 0 else "#aaaaaa" for v in top["mean_shift"]]
+
+    fig, ax = plt.subplots(figsize=(10, max(7, top_n * 0.32)))
+    ax.barh(top["word"][::-1], top["mean_shift"][::-1],
+            color=bar_colors[::-1], edgecolor="white")
+    ax.axvline(0, color="black", lw=1.0)
+    ax.set_xlabel("Mean Attention Weight Shift")
+    ax.set_title(
+        f"Top {top_n} Words — Attention Shift\n"
+        f"{condition.capitalize()} vs. Neutralized (CLS, layer 11, head 11)",
+        fontsize=12,
+    )
+    plt.tight_layout()
+    _save(fig, output_dir / f"fig_{condition}_attention_shift.png")
+
+    return df
+
+
+# ===========================================================================
+# Report generation
+# ===========================================================================
+
+def build_report(
+    all_results:      Dict[str, pd.DataFrame],
+    cross_combined:   pd.DataFrame,
+    asym_stats:       Optional[dict],
+    alpha:            float,
+    n_permutations:   int,
+    output_dir:       Path,
+) -> str:
+    """Build a plain-text statistical report and write it to disk."""
+    lines = [
+        "=" * 80,
+        "CLINICAL VALENCE BEHAVIORAL TESTING — STATISTICAL ANALYSIS REPORT",
+        "=" * 80,
+        f"Generated:          {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Significance level: α = {alpha}",
+        f"MCC method:         Benjamini-Hochberg FDR",
+        f"Permutations (T):   {n_permutations:,}",
+        f"Effect size:        Cohen's d (paired) + Hedges' g",
+        f"CI method:          Bootstrap percentile (B=5,000)",
+        "",
+    ]
+
+    condition_labels = {
+        "pejorative": "RQ1 — Pejorative Shift",
+        "laud":       "RQ2 — Laudatory Shift",
+        "laudatory":  "RQ2 — Laudatory Shift",
+        "neutralval": "RQ3 — Neutral Valence Shift",
+    }
+
+    for cond, df in all_results.items():
+        label = condition_labels.get(cond, cond)
+        total = len(df)
+        sig_col = "permutation_significant"
+        n_sig = int(df[sig_col].sum()) if sig_col in df.columns else 0
+        up    = int(((df.get(sig_col, False) == True) & (df["mean_shift"] > 0)).sum())
+        down  = int(((df.get(sig_col, False) == True) & (df["mean_shift"] < 0)).sum())
+
+        lines += [
             "=" * 80,
-            "STATISTICAL ANALYSIS REPORT",
+            label,
             "=" * 80,
-            "",
-            f"Significance level: {self.significance_level}",
-            f"Multiple comparison correction: {self.correction_method}",
+            f"  Total ICD-9 codes analyzed:    {total:,}",
+            f"  Significant after FDR (perm):  {n_sig:,}  ({100*n_sig/max(total,1):.1f}%)",
+            f"  Upward shifts:                 {up:,}",
+            f"  Downward shifts:               {down:,}",
         ]
 
-        if has_permutation:
-            n_perm = diagnosis_results['permutation_n_permutations'].iloc[0] if 'permutation_n_permutations' in diagnosis_results.columns else 'N/A'
-            report_lines.append(f"Permutation testing: ENABLED (n_permutations={n_perm})")
-            report_lines.append("Reference: Yeh (2000) - Approximate Randomization")
+        if n_sig > 0:
+            sig = df[df.get(sig_col, pd.Series(False)) == True]
+            med_d   = sig["cohens_d"].abs().median()
+            max_up  = sig["mean_shift"].max()
+            max_dn  = sig["mean_shift"].min()
+            top_code = sig.iloc[0]["diagnosis_code"]
 
-        report_lines.extend([
+            lines += [
+                f"  Max upward Δ:                  {max_up:+.6f}",
+                f"  Max downward Δ:                {max_dn:+.6f}",
+                f"  Median |Cohen's d| (sig):      {med_d:.4f}  [{interpret_effect_size(med_d)}]",
+                f"  Most shifted code:             {top_code}",
+                "",
+                "  Top 10 significant codes by |mean_shift|:",
+            ]
+            top10 = sig.nlargest(10, "mean_shift", keep="all")
+            for _, row in top10.iterrows():
+                ci_str = f"[{row['ci_lower']:+.5f}, {row['ci_upper']:+.5f}]"
+                lines.append(
+                    f"    {row['diagnosis_code']:>8}  "
+                    f"Δ={row['mean_shift']:+.6f}  "
+                    f"95% CI {ci_str}  "
+                    f"d={row['cohens_d']:+.4f}  "
+                    f"p_perm={row['permutation_pvalue_corrected']:.4e}"
+                )
+        lines.append("")
+
+    # RQ4 — Asymmetry
+    if asym_stats:
+        lines += [
+            "=" * 80,
+            "RQ4 — Pejorative vs. Laudatory Asymmetry",
+            "=" * 80,
+            f"  Codes compared:           {asym_stats['n_codes']:,}",
+            f"  Pearson r:                {asym_stats['pearson_r']:.4f}  (p={asym_stats['pearson_p']:.6f})",
+            f"  Same-direction shifts:    {asym_stats['same_direction_codes']:,}",
+            f"  Opposite-direction shifts:{asym_stats['opposite_direction_codes']:,}  ({asym_stats['pct_opposite']:.1f}%)",
             "",
-            "=" * 80,
-            "DIAGNOSIS PROBABILITY SHIFTS",
-            "=" * 80,
-            ""
-        ])
+            "  Interpretation:",
+            "  r ≈ −1 → mirror-image asymmetry (pejorative and laudatory fully opposed)",
+            "  r ≈  0 → independent effects",
+            "  r ≈ +1 → both valences shift predictions in the same direction",
+            "",
+        ]
 
-        # Significant diagnoses - Parametric tests
-        if 'ttest_significant' in diagnosis_results.columns:
-            sig_diagnoses = diagnosis_results[diagnosis_results['ttest_significant']]
-            report_lines.append(f"Significant diagnoses - Paired t-test (after correction): {len(sig_diagnoses)}/{len(diagnosis_results)}")
-            report_lines.append("")
+    lines += [
+        "=" * 80,
+        "END OF REPORT",
+        "=" * 80,
+    ]
 
-            if len(sig_diagnoses) > 0:
-                report_lines.append("Top 10 most affected diagnoses (t-test):")
-                # Create abs column for sorting (nlargest doesn't support key parameter)
-                sig_diagnoses_copy = sig_diagnoses.copy()
-                sig_diagnoses_copy['abs_mean_shift'] = sig_diagnoses_copy['mean_shift'].abs()
-                top_diagnoses = sig_diagnoses_copy.nlargest(10, 'abs_mean_shift')
+    report = "\n".join(lines)
+    report_path = output_dir / "statistical_analysis_report.txt"
+    report_path.write_text(report)
+    logger.info(f"Report written → {report_path.name}")
+    return report
 
-                for _, row in top_diagnoses.iterrows():
-                    effect_interp = self.effect_size_interpretation(row['cohens_d'])
-                    report_lines.append(
-                        f"  {row['diagnosis_code']}: "
-                        f"mean_shift={row['mean_shift']:.6f}, "
-                        f"d={row['cohens_d']:.3f} ({effect_interp}), "
-                        f"p_ttest={row['ttest_pvalue_corrected']:.4e}"
-                    )
-                report_lines.append("")
 
-        # Significant diagnoses - Permutation tests
-        if has_permutation and 'permutation_significant' in diagnosis_results.columns:
-            sig_diagnoses_perm = diagnosis_results[diagnosis_results['permutation_significant']]
-            report_lines.append(f"Significant diagnoses - Permutation test (after correction): {len(sig_diagnoses_perm)}/{len(diagnosis_results)}")
-            report_lines.append("")
+def build_excel_summary(
+    all_results: Dict[str, pd.DataFrame],
+    output_dir: Path,
+) -> None:
+    """Write all results to a multi-sheet Excel workbook."""
+    try:
+        excel_path = output_dir / "valence_analysis_results.xlsx"
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            for cond, df in all_results.items():
+                sheet = cond[:31]
+                df.to_excel(writer, sheet_name=sheet, index=False)
+                logger.info(f"  Excel sheet: {sheet}")
 
-            if len(sig_diagnoses_perm) > 0:
-                report_lines.append("Top 10 most affected diagnoses (permutation test):")
-                # Create abs column for sorting (nlargest doesn't support key parameter)
-                sig_diagnoses_perm_copy = sig_diagnoses_perm.copy()
-                sig_diagnoses_perm_copy['abs_mean_shift'] = sig_diagnoses_perm_copy['mean_shift'].abs()
-                top_diagnoses_perm = sig_diagnoses_perm_copy.nlargest(10, 'abs_mean_shift')
+            # Cross-condition sheet
+            # Already written in main
+        logger.info(f"Excel workbook → {excel_path.name}")
+    except ImportError:
+        logger.warning("openpyxl not installed — skipping Excel export")
 
-                for _, row in top_diagnoses_perm.iterrows():
-                    effect_interp = self.effect_size_interpretation(row['cohens_d'])
-                    report_lines.append(
-                        f"  {row['diagnosis_code']}: "
-                        f"mean_shift={row['mean_shift']:.6f}, "
-                        f"d={row['cohens_d']:.3f} ({effect_interp}), "
-                        f"p_perm={row['permutation_pvalue_corrected']:.4e}"
-                    )
-                report_lines.append("")
 
-            # Comparison of t-test vs permutation test
-            if 'ttest_significant' in diagnosis_results.columns:
-                ttest_sig = set(diagnosis_results[diagnosis_results['ttest_significant']]['diagnosis_code'])
-                perm_sig = set(diagnosis_results[diagnosis_results['permutation_significant']]['diagnosis_code'])
+# ===========================================================================
+# CLI entry point
+# ===========================================================================
 
-                agreement = len(ttest_sig & perm_sig)
-                ttest_only = len(ttest_sig - perm_sig)
-                perm_only = len(perm_sig - ttest_sig)
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Statistical analysis for clinical valence behavioral testing.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p.add_argument("--results_dir",    type=str, default="./results",
+                   help="Directory containing prediction CSVs from main.py")
+    p.add_argument("--baseline_key",   type=str, default="neutralize",
+                   help="Shift condition to use as baseline")
+    p.add_argument("--conditions",     type=str, default="pejorative,laud,neutralval",
+                   help="Comma-separated shift conditions to compare against baseline")
+    p.add_argument("--n_permutations", type=int, default=10000,
+                   help="Number of permutations for approximate randomization test")
+    p.add_argument("--alpha",          type=float, default=0.05,
+                   help="Significance level (FDR-corrected)")
+    p.add_argument("--correction",     type=str, default="fdr_bh",
+                   choices=["fdr_bh", "bonferroni", "none"],
+                   help="Multiple comparison correction method")
+    p.add_argument("--output_dir",     type=str, default=None,
+                   help="Output directory (default: results_dir/analysis_<timestamp>)")
+    p.add_argument("--seed",           type=int, default=42,
+                   help="Random seed for permutation tests and bootstrap CI")
+    p.add_argument("--top_n",          type=int, default=25,
+                   help="Number of top codes to show in bar plots")
+    return p.parse_args()
 
-                report_lines.extend([
-                    "Comparison: t-test vs Permutation test",
-                    f"  Agreement (both significant): {agreement}",
-                    f"  t-test only: {ttest_only}",
-                    f"  Permutation only: {perm_only}",
-                    ""
-                ])
 
-        # Attention shifts
-        if attention_results is not None:
-            has_perm_attention = 'permutation_pvalue' in attention_results.columns
+def main() -> None:
+    args = parse_args()
+    results_dir = Path(args.results_dir)
+    if not results_dir.exists():
+        logger.error(f"Results directory not found: {results_dir}")
+        sys.exit(1)
 
-            report_lines.extend([
-                "=" * 80,
-                "ATTENTION WEIGHT SHIFTS",
-                "=" * 80,
-                ""
-            ])
+    output_dir = Path(args.output_dir) if args.output_dir else (
+        results_dir / f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Output directory: {output_dir}")
 
-            # Parametric test results
-            if 'significant' in attention_results.columns:
-                sig_words = attention_results[attention_results['significant']]
-                report_lines.append(f"Significant words - t-test: {len(sig_words)}/{len(attention_results)}")
-                report_lines.append("")
+    sns.set_theme(style="whitegrid", font_scale=1.15)
 
-                if len(sig_words) > 0:
-                    report_lines.append("Top 10 words with largest attention shifts (t-test):")
-                    for _, row in sig_words.head(10).iterrows():
-                        effect_interp = self.effect_size_interpretation(row['cohens_d'])
-                        line = (
-                            f"  '{row['word']}': "
-                            f"shift={row['mean_shift']:.6f}, "
-                            f"d={row['cohens_d']:.3f} ({effect_interp}), "
-                            f"p_ttest={row['ttest_pvalue_corrected']:.4e}"
-                        )
-                        if has_perm_attention:
-                            line += f", p_perm={row.get('permutation_pvalue_corrected', 'N/A'):.4e}"
-                        report_lines.append(line)
-                    report_lines.append("")
+    # -----------------------------------------------------------------------
+    # 1.  Load baseline
+    # -----------------------------------------------------------------------
+    logger.info(f"Loading baseline: {args.baseline_key}")
+    baseline_path = find_csv_for_condition(results_dir, args.baseline_key)
+    if baseline_path is None:
+        logger.error(f"Baseline CSV not found for '{args.baseline_key}' in {results_dir}")
+        sys.exit(1)
 
-            # Permutation test results
-            if has_perm_attention and 'permutation_significant' in attention_results.columns:
-                sig_words_perm = attention_results[attention_results['permutation_significant']]
-                report_lines.append(f"Significant words - Permutation test: {len(sig_words_perm)}/{len(attention_results)}")
-                report_lines.append("")
+    baseline_df, code_cols = load_predictions(baseline_path)
 
-                # Comparison
-                if 'significant' in attention_results.columns:
-                    ttest_sig_words = set(attention_results[attention_results['significant']]['word'])
-                    perm_sig_words = set(attention_results[attention_results['permutation_significant']]['word'])
+    # -----------------------------------------------------------------------
+    # 2.  Run comparisons for each condition
+    # -----------------------------------------------------------------------
+    conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
+    all_results: Dict[str, pd.DataFrame] = {}
 
-                    agreement = len(ttest_sig_words & perm_sig_words)
-                    ttest_only = len(ttest_sig_words - perm_sig_words)
-                    perm_only = len(perm_sig_words - ttest_sig_words)
+    for cond in conditions:
+        logger.info(f"\n{'─'*60}")
+        logger.info(f"Condition: {cond}")
+        path = find_csv_for_condition(results_dir, cond)
+        if path is None:
+            logger.warning(f"  CSV not found for '{cond}' — skipping")
+            continue
 
-                    report_lines.extend([
-                        "Comparison: t-test vs Permutation test",
-                        f"  Agreement (both significant): {agreement}",
-                        f"  t-test only: {ttest_only}",
-                        f"  Permutation only: {perm_only}",
-                        ""
-                    ])
+        treatment_df, _ = load_predictions(path)
 
-        report_lines.append("")
-        report_lines.append("=" * 80)
+        results = run_full_comparison(
+            baseline_df,
+            treatment_df,
+            code_cols,
+            n_permutations=args.n_permutations,
+            alpha=args.alpha,
+            seed=args.seed,
+            label=f"{args.baseline_key} vs {cond}",
+        )
 
-        report = "\n".join(report_lines)
+        # Save per-condition CSV
+        out_csv = output_dir / f"statistical_analysis_{args.baseline_key}_vs_{cond}.csv"
+        results.to_csv(out_csv, index=False)
+        logger.info(f"  Results CSV → {out_csv.name}")
 
-        # Save if path provided
-        if output_path:
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, 'w') as f:
-                f.write(report)
-            logger.info(f"Analysis report saved to {output_path}")
+        all_results[cond] = results
 
-        return report
+        # ── Figures ──
+        logger.info("  Generating figures ...")
+        plot_shift_distribution(results, cond, output_dir)
+        plot_volcano(results, cond, output_dir)
+        plot_top_codes_bar(results, cond, output_dir, top_n=args.top_n)
+        plot_chapter_summary(results, cond, output_dir)
+        plot_effect_size_distribution(results, cond, output_dir)
+
+        # ── Attention (RQ5) ──
+        baseline_attn = load_attention_data(results_dir, args.baseline_key)
+        treatment_attn = load_attention_data(results_dir, cond)
+        if baseline_attn is not None and treatment_attn is not None:
+            logger.info("  Running attention analysis (RQ5) ...")
+            attn_results = analyze_attention(
+                baseline_attn, treatment_attn, cond, output_dir,
+                n_permutations=args.n_permutations, alpha=args.alpha,
+            )
+            if attn_results is not None:
+                attn_results.to_csv(
+                    output_dir / f"attention_analysis_{args.baseline_key}_vs_{cond}.csv",
+                    index=False,
+                )
+
+    # -----------------------------------------------------------------------
+    # 3.  Cross-condition analysis (RQ4)
+    # -----------------------------------------------------------------------
+    if len(all_results) >= 2:
+        logger.info("\nCross-condition analysis (RQ4) ...")
+        cross = cross_condition_summary(all_results, alpha=args.alpha)
+        cross.to_csv(output_dir / "cross_condition_summary.csv", index=False)
+
+        shift_cols = [f"mean_shift_{c}" for c in all_results if f"mean_shift_{c}" in cross.columns]
+        if shift_cols:
+            plot_cross_condition_heatmap(cross, shift_cols, output_dir)
+
+        # Asymmetry scatter (pejorative vs. laudatory)
+        pej_key  = next((k for k in all_results if "pej" in k), None)
+        laud_key = next((k for k in all_results if "laud" in k), None)
+        asym_stats = None
+        if pej_key and laud_key:
+            plot_asymmetry_scatter(all_results[pej_key], all_results[laud_key], output_dir)
+            asym_stats = asymmetry_stats(all_results[pej_key], all_results[laud_key])
+            logger.info(f"  Asymmetry: r={asym_stats['pearson_r']}, "
+                        f"{asym_stats['pct_opposite']:.1f}% opposite-direction codes")
+    else:
+        cross = pd.DataFrame()
+        asym_stats = None
+
+    # -----------------------------------------------------------------------
+    # 4.  Report + Excel
+    # -----------------------------------------------------------------------
+    logger.info("\nBuilding report ...")
+    report = build_report(
+        all_results, cross, asym_stats,
+        alpha=args.alpha,
+        n_permutations=args.n_permutations,
+        output_dir=output_dir,
+    )
+    print("\n" + report)
+
+    build_excel_summary(all_results, output_dir)
+
+    # -----------------------------------------------------------------------
+    # 5.  Done
+    # -----------------------------------------------------------------------
+    logger.info("\n" + "=" * 60)
+    logger.info(f"Analysis complete. All outputs in: {output_dir}")
+    logger.info("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
